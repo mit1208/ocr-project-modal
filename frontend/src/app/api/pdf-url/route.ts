@@ -19,7 +19,7 @@ export async function GET(request: Request) {
         },
     });
 
-    const bucketName = process.env.S3_BUCKET || 'my-databricks-ocr-uploads';
+    const bucketName = process.env.S3_BUCKET || 'ocr-uploads-bucket';
     let objectKey = `uploads/${fileId}`;
     if (userId) {
         objectKey = `uploads/${userId}/${fileId}`;

@@ -21,7 +21,7 @@ variable "aws_region" {
 
 variable "bucket_name" {
   description = "Name of the S3 bucket for OCR uploads"
-  default     = "my-databricks-ocr-uploads"
+  default     = "ocr-pipeline-uploads-bucket"
 }
 
 variable "modal_api_url" {

@@ -57,7 +57,6 @@ def lambda_handler(event, context):
         
     return {
         "file_id": file_id,
-        "user_id": user_id,
         "total_pages": total_pages,
         "chunks": chunks
     }

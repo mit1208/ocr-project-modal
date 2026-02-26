@@ -21,7 +21,7 @@ export async function POST(request: Request) {
             },
         });
 
-        const bucketName = process.env.S3_BUCKET || 'my-databricks-ocr-uploads';
+        const bucketName = process.env.S3_BUCKET || 'ocr-uploads-bucket';
         // Use timestamp to prevent overwrites, or just a random string
         const uniqueId = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
         // Remove spaces from filename

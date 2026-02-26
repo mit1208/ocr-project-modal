@@ -398,7 +398,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
                 <div className="relative z-10">
                   <p className="text-sm font-bold mb-2">Beta Access</p>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    You're using our high-speed Databricks OCR pipeline powered by GPU-accelerated Modal compute.
+                    You're using our high-speed OCR pipeline powered by GPU-accelerated Modal compute.
                   </p>
                 </div>
                 <div className="absolute right-[-20px] bottom-[-20px] w-24 h-24 bg-white/5 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
