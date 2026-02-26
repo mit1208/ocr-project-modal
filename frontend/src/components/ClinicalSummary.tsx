@@ -228,7 +228,7 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
             {/* ═══ Left Sidebar (AI Analysis & Tabs) ═══ */}
             <div className="w-[110px] flex flex-col border-r border-slate-200 bg-slate-50/50 shrink-0">
                 <div className="flex flex-col items-center justify-center px-2 py-4 border-b border-slate-200 bg-gradient-to-br from-blue-50/50 to-indigo-50/50 shrink-0 shadow-sm text-center">
-                    <span className="text-3xl drop-shadow-sm animate-pulse" title="AI Document OCR">🤖</span>
+                    <span className="text-3xl drop-shadow-sm animate-pulse" title="Clinical Intelligence OCR">🏥</span>
                 </div>
 
                 <div className="flex flex-col py-3 w-full gap-2 px-1.5 pointer-events-auto shrink-0 flex-1 overflow-y-auto">

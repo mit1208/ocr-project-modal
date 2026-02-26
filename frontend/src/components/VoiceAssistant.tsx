@@ -20,7 +20,7 @@ interface VoiceQAProps {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const STATE_LABELS: Record<State, string> = {
-    idle: "Ask anything about this document",
+    idle: "Ask anything about this medical record",
     connecting: "Connecting...",
     listening: "Listening...",
     thinking: "Finding answer...",
@@ -390,7 +390,7 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
                             </div>
                             <div>
                                 <p style={{ fontSize: 13, fontWeight: 700, margin: 0, letterSpacing: "-0.01em", color: "#fff" }}>
-                                    AI Voice Assistant
+                                    Clinical AI Assistant
                                 </p>
                                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                                     <div style={{ width: 6, height: 6, borderRadius: "50%", background: color, animation: isActive ? "blink 1.2s ease-in-out infinite" : "none" }} />
@@ -430,7 +430,7 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
                                 textAlign: "center"
                             }}>
                                 <div className="w-16 h-16 bg-blue-600/10 rounded-3xl flex items-center justify-center border border-blue-500/10 mb-2">
-                                    <span style={{ fontSize: 32 }}>🎙️</span>
+                                    <span style={{ fontSize: 32 }}>🏥</span>
                                 </div>
                                 <p style={{
                                     fontFamily: "'DM Mono', monospace",
@@ -561,7 +561,7 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
 
                     {/* Tooltip */}
                     <div className="absolute right-20 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest py-2 px-4 rounded-xl opacity-0 group-hover:opacity-100 transition-all transform group-hover:translate-x-0 translate-x-4 whitespace-nowrap pointer-events-none shadow-2xl border border-white/10">
-                        Ask Document AI
+                        Ask Clinical AI
                     </div>
                 </button>
             )}

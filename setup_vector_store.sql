@@ -11,8 +11,15 @@ CREATE TABLE IF NOT EXISTS public.document_chunks (
     start_offset INTEGER, -- Pointer to start of content in ocr_results
     end_offset INTEGER,   -- Pointer to end of content in ocr_results
     embedding vector(768), 
+    is_public BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Trigger to sync is_public status from documents table
+DROP TRIGGER IF EXISTS trigger_sync_chunks_public ON public.document_chunks;
+CREATE TRIGGER trigger_sync_chunks_public
+    BEFORE INSERT OR UPDATE ON public.document_chunks
+    FOR EACH ROW EXECUTE FUNCTION public.sync_is_public_status();
 
 -- Match function joining with ocr_results to retrieve content only when needed
 CREATE OR REPLACE FUNCTION match_document_chunks (
@@ -43,6 +50,7 @@ BEGIN
   JOIN public.ocr_results ocr ON dc.file_id = ocr.file_id AND dc.page_number = ocr.page
   WHERE dc.file_id = p_file_id
     AND 1 - (dc.embedding <=> query_embedding) > match_threshold
+    AND (dc.is_public = TRUE OR dc.user_id = auth.uid()) -- Security check in function
   ORDER BY similarity DESC
   LIMIT match_count;
 END;
@@ -55,11 +63,15 @@ USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 -- Enable RLS
 ALTER TABLE public.document_chunks ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Users can view their own document chunks"
+CREATE POLICY "Users can view their own or public document chunks"
     ON public.document_chunks FOR SELECT
-    USING (auth.uid() = user_id);
+    USING (auth.uid() = user_id OR is_public = TRUE);
 
 CREATE POLICY "Users can insert their own document chunks"
     ON public.document_chunks FOR INSERT
     WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own document chunks"
+    ON public.document_chunks FOR UPDATE
+    USING (auth.uid() = user_id);
 

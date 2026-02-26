@@ -4,7 +4,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 export async function POST(request: Request) {
     try {
-        const { filename, contentType, userId } = await request.json();
+        const { filename, contentType, userId, isPublic } = await request.json();
 
         if (!filename || !contentType) {
             return NextResponse.json(
@@ -22,9 +22,7 @@ export async function POST(request: Request) {
         });
 
         const bucketName = process.env.S3_BUCKET || 'ocr-uploads-bucket';
-        // Use timestamp to prevent overwrites, or just a random string
         const uniqueId = Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-        // Remove spaces from filename
         const cleanFileName = filename.replace(/\s+/g, '-');
 
         let objectKey = `uploads/${uniqueId}-${cleanFileName}`;
@@ -32,17 +30,27 @@ export async function POST(request: Request) {
             objectKey = `uploads/${userId}/${uniqueId}-${cleanFileName}`;
         }
 
+        // Generate a case ID for this specific upload
+        const caseId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 10);
+
         const command = new PutObjectCommand({
             Bucket: bucketName,
             Key: objectKey,
             ContentType: contentType,
+            Metadata: {
+                'is-public': String(isPublic || false),
+                'case-id': caseId,
+                'user-id': userId || 'anonymous',
+                'filename': filename
+            }
         });
 
         // URL expires in 15 minutes
-        const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
-
-        // Generate a case ID for this specific upload
-        const caseId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 10);
+        const uploadUrl = await getSignedUrl(s3Client, command, {
+            expiresIn: 900,
+            // Include metadata headers in the signature
+            signableHeaders: new Set(['content-type', 'x-amz-meta-is-public', 'x-amz-meta-case-id', 'x-amz-meta-user-id', 'x-amz-meta-filename'])
+        });
 
         return NextResponse.json({
             uploadUrl,

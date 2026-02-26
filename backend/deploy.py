@@ -20,6 +20,8 @@ image = (
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
+from typing import Union, List
+
 app = modal.App("lightonocr", image=image)
 
 hf_cache = modal.Volume.from_name("hf-cache", create_if_missing=True)
@@ -49,26 +51,40 @@ class OCRServer:
             MODEL_ID, torch_dtype=self.dtype
         ).to(self.device)
         self.processor = LightOnOcrProcessor.from_pretrained(MODEL_ID)
+        
+        # Ensure left padding for batch generation
+        if self.processor.tokenizer.padding_side != "left":
+            self.processor.tokenizer.padding_side = "left"
+            
         self.model.eval()
         print("Model ready.")
 
     @modal.method()
-    def ocr(self, image_b64: str) -> str:
+    def ocr(self, image_or_images: Union[str, List[str]]) -> Union[str, List[str]]:
         import torch
         import io
         from PIL import Image
 
-        image_bytes = base64.b64decode(image_b64)
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        is_batch = isinstance(image_or_images, list)
+        images_b64 = image_or_images if is_batch else [image_or_images]
+        
+        images = []
+        for b64 in images_b64:
+            image_bytes = base64.b64decode(b64)
+            images.append(Image.open(io.BytesIO(image_bytes)).convert("RGB"))
 
-        conversation = [{"role": "user", "content": [{"type": "image", "image": image}]}]
+        conversations = [
+            [{"role": "user", "content": [{"type": "image", "image": img}]}] 
+            for img in images
+        ]
 
         inputs = self.processor.apply_chat_template(
-            conversation,
+            conversations,
             add_generation_prompt=True,
             tokenize=True,
             return_dict=True,
             return_tensors="pt",
+            padding=True,
         )
         inputs = {
             k: v.to(device=self.device, dtype=self.dtype) if v.is_floating_point() else v.to(self.device)
@@ -78,36 +94,71 @@ class OCRServer:
         with torch.no_grad():
             output_ids = self.model.generate(**inputs, max_new_tokens=4096)
 
-        generated_ids = output_ids[0, inputs["input_ids"].shape[1]:]
-        return self.processor.decode(generated_ids, skip_special_tokens=True).strip()
+        # Skip the prompt tokens in the output
+        prompt_len = inputs["input_ids"].shape[1]
+        generated_ids = output_ids[:, prompt_len:]
+        
+        decoded_out = self.processor.batch_decode(generated_ids, skip_special_tokens=True)
+        results = [text.strip() for text in decoded_out]
+        
+        return results if is_batch else results[0]
 
-    @modal.fastapi_endpoint(method="POST", docs=True)
-    def api(self, request: dict):
+    @modal.asgi_app(label="api")
+    def web(self):
+        from fastapi import FastAPI, Request
         from fastapi.responses import JSONResponse
-        """POST body: { "image": "<base64>" } — returns { "text": "..." }"""
-        headers = {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        }
-        image_b64 = request.get("image")
-        if not image_b64:
-            return JSONResponse(content={"error": "Missing 'image' field"}, status_code=400, headers=headers)
-        return JSONResponse(content={"text": self.ocr.local(image_b64)}, headers=headers)
+        from fastapi.middleware.cors import CORSMiddleware
+        from modal.functions import FunctionCall
+        import modal
 
-    @modal.fastapi_endpoint(method="OPTIONS")
-    def api_options(self):
-        from fastapi.responses import Response
-        headers = {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        }
-        return Response(status_code=204, headers=headers)
+        web_app = FastAPI()
 
-    @modal.fastapi_endpoint(method="GET")
-    def health(self) -> dict:
-        return {"status": "ok", "model": MODEL_ID, "gpu": GPU}
+        web_app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        @web_app.post("/api")
+        async def start_job(data: dict):
+            """Enqueues a job and returns job_id."""
+            images = data.get("images")
+            image = data.get("image")
+            
+            if not images and not image:
+                return JSONResponse(content={"error": "Missing 'image' or 'images'"}, status_code=400)
+            
+            payload = images if images else image
+            call = self.ocr.spawn(payload)
+            print(f"Started async job: {call.object_id}")
+            return {"job_id": call.object_id}
+
+        @web_app.get("/results")
+        async def get_results(job_id: str):
+            """Polls for job completion."""
+            try:
+                call = FunctionCall.from_id(job_id)
+                try:
+                    result = call.get(timeout=0)
+                    if isinstance(result, list):
+                        return {"status": "completed", "texts": result}
+                    else:
+                        return {"status": "completed", "text": result}
+                except modal.exception.TimeoutError:
+                    return {"status": "processing"}
+                except Exception as e:
+                    return {"status": "failed", "error": str(e)}
+            except Exception as e:
+                return JSONResponse(content={"status": "error", "error": str(e)}, status_code=500)
+
+        @web_app.get("/health")
+        async def health():
+            return {"status": "ok", "model": MODEL_ID, "gpu": GPU}
+
+        return web_app
+
+
 
 
 @app.local_entrypoint()
@@ -119,7 +170,16 @@ def main():
         image_bytes = r.read()
 
     image_b64 = base64.b64encode(image_bytes).decode()
-    print("Sending test image ...")
+    
+    # Test single image
+    print("Testing single image ...")
     result = OCRServer().ocr.remote(image_b64)
-    print("\n--- OCR Result ---")
-    print(result)
+    print(f"\n--- Result (length {len(result)}) ---")
+    print(result[:100] + "...")
+
+    # Test batch images
+    print("\nTesting batch (2 images) ...")
+    batch_results = OCRServer().ocr.remote([image_b64, image_b64])
+    print(f"Received {len(batch_results)} results.")
+    for i, res in enumerate(batch_results):
+        print(f"Result {i+1} (length {len(res)}): {res[:50]}...")

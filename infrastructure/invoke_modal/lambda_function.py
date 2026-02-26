@@ -54,48 +54,103 @@ def lambda_handler(event, context):
         s3_client.download_file(bucket, key, temp_pdf_path)
         doc = fitz.open(temp_pdf_path)
         
+        pages_to_ocr = []
+        images_to_ocr = []
+        
         for p_num in range(start_page, end_page + 1):
-            # Check if within total pages bound
             if p_num > len(doc): break
             
             if p_num in existing_pages:
-                text = existing_pages[p_num]
                 print(f"Page {p_num}: Found in DB.")
+                results.append({"page": p_num, "text": existing_pages[p_num]})
             else:
-                print(f"Page {p_num}: Calling Modal OCR...")
+                print(f"Page {p_num}: Preparing for batch OCR...")
                 page = doc.load_page(p_num - 1)
                 pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                
-                # Convert to PNG base64
                 img_bytes = pix.tobytes("png")
                 img_b64 = base64.b64encode(img_bytes).decode('utf-8')
                 
-                # Send to Modal API
-                req_data = json.dumps({"image": img_b64}).encode('utf-8')
-                req = urllib.request.Request(MODAL_API_URL, data=req_data, headers={"Content-Type": "application/json"})
-                
-                try:
-                    with urllib.request.urlopen(req, timeout=300) as response:
-                        res_body = json.loads(response.read().decode())
-                        text = res_body.get('text', '')
-                        
-                        if supabase:
-                            # Write to Supabase
-                            row_data = {
-                                "file_id": file_id,
-                                "page": p_num,
-                                "text": text
-                            }
-                            if user_id:
-                                row_data["user_id"] = user_id
-                                
-                            supabase.table("ocr_results").insert(row_data).execute()
-                except Exception as e:
-                    print(f"Failed to process page {p_num}: {e}")
-                    raise e
+                pages_to_ocr.append(p_num)
+                images_to_ocr.append(img_b64)
+
+        if images_to_ocr:
+            import time
+            print(f"Starting async Modal OCR for batch of {len(images_to_ocr)} pages...")
             
-            results.append({"page": p_num, "text": text})
+            # Ensure URL format
+            base_url = MODAL_API_URL.rstrip('/')
+            if base_url.endswith('/api'): # Clean up if old URL was passed
+                base_url = base_url[:-4]
+            
+            start_url = f"{base_url}/api"
+            req_data = json.dumps({"images": images_to_ocr}).encode('utf-8')
+            start_req = urllib.request.Request(start_url, data=req_data, headers={"Content-Type": "application/json"})
+            
+            try:
+                with urllib.request.urlopen(start_req, timeout=30) as start_res:
+                    res_json = json.loads(start_res.read().decode())
+                    job_id = res_json.get('job_id')
+                    
+                if not job_id:
+                    raise ValueError(f"Failed to get job_id from Modal. Response: {res_json}")
                 
+                print(f"Job started: {job_id}. Polling for results...")
+                
+                # Polling loop
+                results_url = f"{base_url}/results?job_id={job_id}"
+                max_polls = 60 # 2 minutes total
+                texts = None
+                
+                for poll_count in range(max_polls):
+                    try:
+                        with urllib.request.urlopen(results_url, timeout=10) as poll_res:
+                            poll_data = json.loads(poll_res.read().decode())
+                            status = poll_data.get('status')
+                            
+                            if status == 'completed':
+                                texts = poll_data.get('texts', [])
+                                print(f"Job {job_id} completed successfully.")
+                                break
+                            elif status == 'failed':
+                                raise Exception(f"Modal job failed: {poll_data.get('error')}")
+                            
+                            if poll_count % 5 == 0:
+                                print(f"Polling... current status: {status}")
+                    except Exception as poll_err:
+                        print(f"Poll error: {poll_err}")
+                        
+                    time.sleep(2)
+                
+                if texts is None:
+                    raise TimeoutError(f"Modal job {job_id} timed out after {max_polls * 2} seconds.")
+
+                if len(texts) != len(pages_to_ocr):
+                    print(f"Warning: Expected {len(pages_to_ocr)} results, but got {len(texts)}. Mapping might be misaligned.")
+
+                rows_to_insert = []
+                for i, p_num in enumerate(pages_to_ocr):
+                    text = texts[i] if i < len(texts) else ""
+                    results.append({"page": p_num, "text": text})
+                    
+                    row_data = {
+                        "file_id": file_id,
+                        "page": p_num,
+                        "text": text
+                    }
+                    if user_id:
+                        row_data["user_id"] = user_id
+                    rows_to_insert.append(row_data)
+                
+                if supabase and rows_to_insert:
+                    print(f"Inserting {len(rows_to_insert)} results into DB...")
+                    supabase.table("ocr_results").insert(rows_to_insert).execute()
+                        
+            except Exception as e:
+                print(f"Async OCR flow failed: {e}")
+                raise e
+        
+        # Sort results by page number before returning
+        results.sort(key=lambda x: x['page'])
         return {"status": "success", "file_id": file_id, "results": results}
         
     except Exception as e:

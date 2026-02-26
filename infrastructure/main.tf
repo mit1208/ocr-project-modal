@@ -165,6 +165,12 @@ resource "aws_lambda_function" "pdf_split" {
   memory_size      = 512
   timeout          = 30
   layers           = [aws_lambda_layer_version.ocr_vendor_layer.arn]
+  environment {
+    variables = {
+      SUPABASE_URL              = var.supabase_url
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+    }
+  }
 }
 
 resource "aws_lambda_function" "invoke_modal" {
@@ -277,8 +283,22 @@ resource "aws_sfn_state_machine" "ocr_pipeline" {
             BackoffRate     = 2
           }
         ]
-        Next           = "ProcessChunks"
+        Next           = "CheckDeduplication"
         ResultPath     = "$.pageSplitResult"
+      }
+      CheckDeduplication = {
+        Type = "Choice"
+        Choices = [
+          {
+            Variable      = "$.pageSplitResult.already_processed"
+            BooleanEquals = true
+            Next          = "SuccessExit"
+          }
+        ]
+        Default = "ProcessChunks"
+      }
+      SuccessExit = {
+        Type = "Succeed"
       }
       ProcessChunks = {
         Type       = "Map"
