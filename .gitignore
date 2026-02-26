@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+env/
+.env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Next.js
+.next/
+out/
+build/
+
+# IDEs and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment Files (SENSITIVE)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.tfvars
+
+# Infrastructure / Terraform
+.terraform/
+infrastructure/terraform
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+*.zip
+
+
+
+# Vercel
+.vercel
+
+# Other
+.python-version
+.pytest_cache/
+.mypy_cache/
+*.tsbuildinfo
+next-env.d.ts
