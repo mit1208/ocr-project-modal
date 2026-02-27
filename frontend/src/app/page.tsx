@@ -244,11 +244,13 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
 
       setStatusMessage('Uploading straight to AWS S3...');
 
+      // No metadata headers needed — the document record was pre-created
+      // on the server side in Supabase by the /api/upload-url route.
       const uploadRes = await fetch(uploadUrl, {
         method: 'PUT',
         body: selectedFile,
         headers: {
-          'Content-Type': selectedFile.type
+          'Content-Type': selectedFile.type,
         },
       });
 

@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS public.documents (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id UUID REFERENCES auth.users(id) NOT NULL,
     case_id TEXT NOT NULL,
-    file_id TEXT NOT NULL,
+    file_id TEXT NOT NULL UNIQUE,
     filename TEXT NOT NULL,
     is_public BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

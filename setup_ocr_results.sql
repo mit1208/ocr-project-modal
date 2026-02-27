@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS public.ocr_results (
   id uuid not null default gen_random_uuid (),
-  user_id uuid null,
+  user_id uuid not null,
   file_id text not null,
   filename text null,
   page integer not null,

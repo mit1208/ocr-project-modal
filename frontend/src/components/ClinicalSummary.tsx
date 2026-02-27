@@ -43,6 +43,8 @@ interface PatientEntry {
 }
 
 interface SummaryData {
+    status?: string;
+    message?: string;
     document_type?: string;
     clinical_summary?: string;
     patients?: PatientEntry[];
@@ -58,6 +60,8 @@ interface SummaryData {
 }
 
 interface FlagsData {
+    status?: string;
+    message?: string;
     critical_flags?: CriticalFlag[];
     abnormal_findings?: AbnormalFinding[];
 }
@@ -67,10 +71,12 @@ interface DetailsPatient {
     groups: Group[];
 }
 interface DetailsData {
+    status?: string;
+    message?: string;
     patients?: DetailsPatient[];
     groups?: Group[];
 }
-interface TimelineData { timeline?: TimelineEvent[] }
+interface TimelineData { status?: string; message?: string; timeline?: TimelineEvent[] }
 
 interface ClinicalSummaryProps { fileId: string; rawResults?: { page: number; text: string }[] | null }
 
@@ -181,15 +187,24 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
 
         const base = '/api/ai';
 
-        const fetchSection = async <T,>(endpoint: string, setter: (d: T) => void, loadingSetter: (b: boolean) => void, countSetter?: (n: number) => void) => {
+        const fetchSection = async <T,>(endpoint: string, setter: (d: T | null | { status: string, message: string }) => void, loadingSetter: (b: boolean) => void, countSetter?: (n: number) => void) => {
             try {
                 const res = await fetch(`${base}/${endpoint}/${fileId}`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const json = await res.json();
-                if (json.data) setter(json.data as T);
+
+                if (json.status === 'processing') {
+                    setter({ status: 'processing', message: json.message || "Processing document..." });
+                } else if (json.data) {
+                    setter(json.data as T);
+                } else {
+                    setter(null);
+                }
+
                 if (countSetter && json.page_count) countSetter(json.page_count);
             } catch (err) {
                 console.error(`Failed to fetch ${endpoint}:`, err);
+                setter(null);
             } finally {
                 loadingSetter(false);
             }
@@ -298,6 +313,10 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
                         <div className="p-5 space-y-4 max-w-4xl">
                             {flagsLoading ? (
                                 <LoadingCard text="Scanning for critical flags..." />
+                            ) : flagsData?.status === 'processing' ? (
+                                <LoadingCard text={flagsData?.message || "Awaiting OCR..."} />
+                            ) : flagsData === null ? (
+                                <LoadingCard text="Waiting for text..." />
                             ) : (hasCriticalFlags || hasAbnormals) ? (
                                 <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-6 shadow-sm">
                                     <div className="flex items-center gap-3 mb-5 border-b border-red-100 pb-3">
@@ -372,6 +391,8 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
                         <div className="p-5 space-y-4">
                             {summaryLoading ? (
                                 <LoadingCard text="Generating clinical summary..." />
+                            ) : summaryData?.status === 'processing' ? (
+                                <LoadingCard text={summaryData?.message || "Awaiting OCR..."} />
                             ) : summaryData ? (
                                 <>
                                     {/* Document Type + Overall Summary */}
@@ -526,7 +547,7 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
                                     ) : null}
                                 </>
                             ) : (
-                                <ErrorCard text="Failed to generate summary" />
+                                <LoadingCard text="Waiting for text..." />
                             )}
                         </div>
                     )}
@@ -536,6 +557,10 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
                         <div className="p-5">
                             {timelineLoading ? (
                                 <LoadingCard text="Building timeline..." />
+                            ) : timelineData?.status === 'processing' ? (
+                                <LoadingCard text={timelineData?.message || "Awaiting OCR..."} />
+                            ) : timelineData === null ? (
+                                <LoadingCard text="Waiting for text..." />
                             ) : hasTimeline ? (
                                 <div className="relative pl-8">
                                     <div className="absolute left-3 top-2 bottom-2 w-0.5 bg-gradient-to-b from-blue-400 via-purple-300 to-slate-200 rounded-full"></div>
@@ -573,6 +598,10 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
                         <div className="p-5 space-y-4">
                             {detailsLoading ? (
                                 <LoadingCard text="Extracting clinical details..." />
+                            ) : detailsData?.status === 'processing' ? (
+                                <LoadingCard text={detailsData?.message || "Awaiting OCR..."} />
+                            ) : detailsData === null ? (
+                                <LoadingCard text="Waiting for text..." />
                             ) : hasGroups ? (
                                 <div className="space-y-8">
                                     {(detailsData!.patients || [{ patient_name: 'Document Level Findings', groups: detailsData!.groups || [] }]).map((patient, pidx) => (

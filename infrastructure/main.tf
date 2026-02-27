@@ -26,7 +26,13 @@ variable "bucket_name" {
 
 variable "modal_api_url" {
   description = "Modal FastApi Endpoint URL for OCR"
-  default     = "https://mitbpatel0128--lightonocr-ocrserver-api.modal.run"
+  default     = ""
+}
+
+variable "ocr_key" {
+  description = "Modal API Key for OCR"
+  type        = string
+  default     = ""
 }
 
 variable "supabase_url" {
@@ -79,10 +85,10 @@ data "archive_file" "pdf_split_zip" {
   output_path = "${path.module}/pdf_split.zip"
 }
 
-data "archive_file" "invoke_modal_zip" {
+data "archive_file" "invoke_ocr_zip" {
   type        = "zip"
-  source_dir  = "${path.module}/invoke_modal"
-  output_path = "${path.module}/invoke_modal.zip"
+  source_dir  = "${path.module}/invoke_ocr"
+  output_path = "${path.module}/invoke_ocr.zip"
 }
 
 data "archive_file" "analyze_document_zip" {
@@ -170,18 +176,19 @@ resource "aws_lambda_function" "pdf_split" {
   layers           = [aws_lambda_layer_version.ocr_vendor_layer.arn]
   environment {
     variables = {
+      MODAL_API_URL             = var.modal_api_url
       SUPABASE_URL              = var.supabase_url
       SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
     }
   }
 }
 
-resource "aws_lambda_function" "invoke_modal" {
-  filename         = data.archive_file.invoke_modal_zip.output_path
-  function_name    = "ocr_invoke_modal"
+resource "aws_lambda_function" "invoke_ocr" {
+  filename         = data.archive_file.invoke_ocr_zip.output_path
+  function_name    = "ocr_invoke_ocr"
   role             = aws_iam_role.lambda_execution_role.arn
   handler          = "lambda_function.lambda_handler"
-  source_code_hash = data.archive_file.invoke_modal_zip.output_base64sha256
+  source_code_hash = data.archive_file.invoke_ocr_zip.output_base64sha256
   runtime          = "python3.11"
   memory_size      = 2048
   timeout          = 900 # 15 minutes max
@@ -189,6 +196,7 @@ resource "aws_lambda_function" "invoke_modal" {
   environment {
     variables = {
       MODAL_API_URL             = var.modal_api_url
+      OCR_API_KEY               = var.ocr_key
       SUPABASE_URL              = var.supabase_url
       SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
     }
@@ -254,7 +262,7 @@ data "aws_iam_policy_document" "sfn_policy" {
     actions   = ["lambda:InvokeFunction"]
     resources = [
       aws_lambda_function.pdf_split.arn,
-      aws_lambda_function.invoke_modal.arn,
+      aws_lambda_function.invoke_ocr.arn,
       aws_lambda_function.analyze_document.arn,
       aws_lambda_function.compute_embeddings.arn
     ]
@@ -304,9 +312,10 @@ resource "aws_sfn_state_machine" "ocr_pipeline" {
         Type = "Succeed"
       }
       ProcessChunks = {
-        Type       = "Map"
-        InputPath  = "$"
-        ItemsPath  = "$.pageSplitResult.chunks"
+        Type           = "Map"
+        InputPath      = "$"
+        ItemsPath      = "$.pageSplitResult.chunks"
+        MaxConcurrency = 2  # Each Lambda handles a batch of up to 4 pages; 2 concurrent Lambdas = 8 pages/req
         ItemProcessor = {
           ProcessorConfig = {
             Mode = "INLINE"
@@ -315,16 +324,19 @@ resource "aws_sfn_state_machine" "ocr_pipeline" {
           States = {
             CallModal = {
               Type     = "Task"
-              Resource = aws_lambda_function.invoke_modal.arn
-              Retry = [
+              Resource = aws_lambda_function.invoke_ocr.arn
+              Catch = [
                 {
-                  ErrorEquals     = ["States.ALL"]
-                  IntervalSeconds = 10
-                  MaxAttempts     = 3
-                  BackoffRate     = 2.0
+                  ErrorEquals = ["States.ALL"]
+                  Next        = "PageFailed"
                 }
               ]
               End = true
+            }
+            PageFailed = {
+              Type  = "Fail"
+              Error = "PageOcrFailed"
+              Cause = "invoke_ocr Lambda failed after all retries"
             }
           }
         }

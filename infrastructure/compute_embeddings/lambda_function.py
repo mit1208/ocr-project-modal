@@ -28,6 +28,10 @@ def lambda_handler(event, context):
     if not user_id:
         user_id = event.get('analysisResult', {}).get('user_id')
     
+    # Sanitize user_id (convert 'anonymous' to None for DB compatibility)
+    if user_id == 'anonymous':
+        user_id = None
+        
     if not file_id:
         print(f"CRITICAL: Could not find file_id in event key set: {list(event.keys())}")
         raise ValueError("Missing file_id in event payload")

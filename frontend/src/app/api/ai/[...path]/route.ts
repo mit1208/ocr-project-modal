@@ -180,6 +180,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
 
             const contextText = chunks?.map((c: any) => `[Page ${c.page_number}]: ${c.content}`).join('\n\n') || "No relevant context found.";
 
+            console.log(`[Ask AI] Retrieved ${chunks?.length || 0} chunks for RAG:`);
+            chunks?.forEach((c: any, i: number) => {
+                console.log(`  - Chunk ${i + 1} (Page ${c.page_number}, Similarity: ${c.similarity?.toFixed(4)}): "${c.content.substring(0, 150)}..."`);
+            });
+
             // 3. Generate Text Answer first
             const textResult = await model.generateContent({
                 contents: [{
@@ -202,6 +207,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
             let audioBase64 = "";
             let mimeType = 'audio/wav';
             try {
+                console.log(`[Ask AI] Attempting Speaking via Gemini TTS Service (Puck)...`);
                 const aiResult = await audioModel.generateContent({
                     contents: [{
                         role: 'user',
@@ -282,7 +288,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
                 return NextResponse.json({ error: "Missing text to speak" }, { status: 400 });
             }
 
-            console.log(`[Audio] Generating native audio stream for text (${textToSpeak.length} chars)...`);
+            console.log(`[Audio] Generating native audio stream via Gemini TTS Service (Puck) for text (${textToSpeak.length} chars)...`);
 
             const result = await audioModel.generateContentStream({
                 contents: [{

@@ -242,6 +242,7 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
             setState("speaking");
 
             if (data.audio) {
+                console.log(`[VoiceAssistant] Playing audio from Gemini TTS service`);
                 const audio = new Audio(`data:${data.mimeType};base64,${data.audio}`);
                 audioRef.current = audio;
                 audio.onended = () => {
@@ -250,7 +251,7 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
                 await audio.play();
             } else if (data.answer) {
                 // Fallback to Browser Text-to-Speech
-                console.log("Free service ran (Browser TTS Fallback)");
+                console.log(`[VoiceAssistant] Using Browser TTS (Fallback)`);
                 const utterance = new SpeechSynthesisUtterance(data.answer);
 
                 // Try to find a high-quality Google US voice
