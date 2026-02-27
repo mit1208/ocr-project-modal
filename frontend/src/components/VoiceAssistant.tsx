@@ -352,9 +352,8 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
     const color = STATE_COLORS[state];
     const isActive = state !== "idle" && state !== "error";
 
-    // ── Render ──────────────────────────────────────────────────────────────────
     return (
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+        <div className="fixed bottom-4 sm:bottom-6 right-4 sm:right-6 z-50 flex flex-col items-end max-w-[calc(100vw-32px)]">
             {isOpen ? (
                 <div style={{
                     fontFamily: "'Cabinet Grotesk', sans-serif",

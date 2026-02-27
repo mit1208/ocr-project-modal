@@ -248,11 +248,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
         method: 'PUT',
         body: selectedFile,
         headers: {
-          'Content-Type': selectedFile.type,
-          'x-amz-meta-is-public': String(isPublic),
-          'x-amz-meta-case-id': caseId,
-          'x-amz-meta-user-id': session?.user?.id || 'anonymous',
-          'x-amz-meta-filename': selectedFile.name
+          'Content-Type': selectedFile.type
         },
       });
 
@@ -315,7 +311,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
 
   if (session === undefined) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="min-h-[100dvh] bg-black flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
@@ -323,7 +319,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
 
   if (!session && !fileIdFromUrl) {
     return (
-      <main className="min-h-screen bg-zinc-950 text-[#FFFFFF] selection:bg-blue-100 selection:text-blue-600 overflow-x-hidden relative">
+      <main className="min-h-[100dvh] bg-zinc-950 text-[#FFFFFF] selection:bg-blue-100 selection:text-blue-600 overflow-x-hidden relative">
         {/* Global Atmospheric Pulsars */}
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
           {/* Top Primary Pulsar */}
@@ -345,8 +341,8 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
 
         {/* Premium Navigation (Ethereal Glass) */}
         <nav className={`fixed top-0 w-full z-50 px-6 md:px-16 transition-all duration-700 ${isScrolled
-            ? 'bg-black/10 backdrop-blur-lg py-4 border-b border-white/5'
-            : 'bg-transparent py-8 border-b border-transparent'
+          ? 'bg-black/10 backdrop-blur-lg py-4 border-b border-white/5'
+          : 'bg-transparent py-8 border-b border-transparent'
           }`}>
           <div className="max-w-[1600px] mx-auto flex items-center justify-between">
             <div className="flex items-center group cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
@@ -408,7 +404,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
                 <div className="text-[8px] uppercase tracking-widest font-black text-white/50">Medical OCR Engine</div>
               </div>
 
-              <div className="grid grid-cols-2 gap-8 flex-1 overflow-hidden">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 flex-1 overflow-hidden">
                 <div className="space-y-4">
                   <div className="space-y-1">
                     <p className="text-white/60 font-black">SCANNING PATIENT_ID: 0x8F2A</p>
@@ -425,7 +421,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
                     </div>
                   ))}
                 </div>
-                <div className="border-l border-white/5 pl-8 space-y-4">
+                <div className="md:border-l border-white/5 md:pl-8 space-y-4">
                   <div className="p-4 bg-blue-500/5 rounded-xl border border-blue-500/10 relative overflow-hidden">
                     <div className="absolute top-2 right-2 flex space-x-0.5">
                       {[...Array(5)].map((_, i) => (
@@ -621,7 +617,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
   }
 
   return (
-    <main className={showSplitPane ? "h-screen flex flex-col bg-zinc-950 overflow-hidden relative" : "min-h-screen bg-zinc-950 font-sans relative"}>
+    <main className={showSplitPane ? "h-[100dvh] flex flex-col bg-zinc-950 overflow-hidden relative" : "min-h-[100dvh] bg-zinc-950 font-sans relative"}>
       {/* Global Atmospheric Pulsars */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         {/* Top Primary Pulsar */}
@@ -643,8 +639,8 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
       {/* Dynamic Header */}
       {!showSplitPane && (
         <nav className={`sticky top-0 z-50 px-6 md:px-16 transition-all duration-700 ${isScrolled
-            ? 'bg-black/10 backdrop-blur-lg py-4 border-b border-white/5'
-            : 'bg-transparent py-8 border-b border-transparent'
+          ? 'bg-black/10 backdrop-blur-lg py-4 border-b border-white/5'
+          : 'bg-transparent py-8 border-b border-transparent'
           }`}>
           <div className="max-w-[1600px] mx-auto flex items-center justify-between">
             <div className="flex items-center group cursor-pointer" onClick={() => router.push(session?.user?.id ? `/dashboard/${session.user.id}` : '/')}>
@@ -792,17 +788,17 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
               </section>
 
               <section className="space-y-10 pt-8">
-                <div className="flex items-center justify-between px-2">
-                  <div className="flex items-baseline space-x-6">
+                <div className="flex flex-col md:flex-row items-center justify-between px-2 gap-4">
+                  <div className="flex items-baseline space-x-4 md:space-x-6">
                     <button
                       onClick={() => setViewMode('private')}
-                      className={`text-2xl font-black transition-all ${viewMode === 'private' ? 'text-white underline decoration-blue-500 decoration-4 underline-offset-8' : 'text-white/20 hover:text-white/40'}`}
+                      className={`text-lg sm:text-2xl font-black transition-all ${viewMode === 'private' ? 'text-white underline decoration-blue-500 decoration-4 underline-offset-8' : 'text-white/20 hover:text-white/40'}`}
                     >
                       My Documents
                     </button>
                     <button
                       onClick={() => setViewMode('public')}
-                      className={`text-2xl font-black transition-all ${viewMode === 'public' ? 'text-white underline decoration-blue-400 decoration-4 underline-offset-8' : 'text-white/20 hover:text-white/40'}`}
+                      className={`text-lg sm:text-2xl font-black transition-all ${viewMode === 'public' ? 'text-white underline decoration-blue-400 decoration-4 underline-offset-8' : 'text-white/20 hover:text-white/40'}`}
                     >
                       Public Library
                     </button>
@@ -936,7 +932,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
 export default function Home() {
   return (
     <Suspense fallback={
-      <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 flex items-center justify-center">
+      <main className="min-h-[100dvh] bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 flex items-center justify-center">
         <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin"></div>
       </main>
     }>

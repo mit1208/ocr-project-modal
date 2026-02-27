@@ -45,11 +45,8 @@ export async function POST(request: Request) {
             }
         });
 
-        // URL expires in 15 minutes
         const uploadUrl = await getSignedUrl(s3Client, command, {
-            expiresIn: 900,
-            // Include metadata headers in the signature
-            signableHeaders: new Set(['content-type', 'x-amz-meta-is-public', 'x-amz-meta-case-id', 'x-amz-meta-user-id', 'x-amz-meta-filename'])
+            expiresIn: 900
         });
 
         return NextResponse.json({

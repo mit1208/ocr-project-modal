@@ -39,7 +39,7 @@ export default function AuthCallback() {
     }, []);
 
     return (
-        <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="min-h-[100dvh] bg-black flex items-center justify-center">
             <div className="text-center space-y-4">
                 <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mx-auto" />
                 <p className="text-cyan-400/50 text-[10px] uppercase tracking-[0.3em] font-black">

@@ -224,9 +224,9 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
     ];
 
     return (
-        <div className="h-full flex flex-row flex-1 min-h-0 bg-white">
+        <div className="h-full flex flex-row flex-1 min-h-0 bg-white overflow-hidden">
             {/* ═══ Left Sidebar (AI Analysis & Tabs) ═══ */}
-            <div className="w-[110px] flex flex-col border-r border-slate-200 bg-slate-50/50 shrink-0">
+            <div className="w-[72px] sm:w-[110px] flex flex-col border-r border-slate-200 bg-slate-50/50 shrink-0">
                 <div className="flex flex-col items-center justify-center px-2 py-4 border-b border-slate-200 bg-gradient-to-br from-blue-50/50 to-indigo-50/50 shrink-0 shadow-sm text-center">
                     <span className="text-3xl drop-shadow-sm animate-pulse" title="Clinical Intelligence OCR">🏥</span>
                 </div>
@@ -245,9 +245,9 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
                             {tab.loading ? (
                                 <div className="w-6 h-6 border-2 border-transparent border-t-blue-400 rounded-full animate-spin mb-1"></div>
                             ) : (
-                                <span className="text-2xl drop-shadow-sm mb-0.5">{tab.icon}</span>
+                                <span className="text-xl sm:text-2xl drop-shadow-sm mb-0.5">{tab.icon}</span>
                             )}
-                            <span className={`text-[10px] uppercase font-bold tracking-wider ${activeTab === tab.id ? 'text-blue-600' : 'text-slate-500'}`}>
+                            <span className={`hidden sm:block text-[10px] uppercase font-bold tracking-wider ${activeTab === tab.id ? 'text-blue-600' : 'text-slate-500'}`}>
                                 {tab.label}
                             </span>
                             {!tab.loading && tab.badge !== undefined && tab.badge > 0 && (
@@ -263,14 +263,14 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
             {/* ═══ Right Block (Content) ═══ */}
             <div className="flex-1 flex flex-col min-w-0 bg-white">
                 {/* ─── Analysis Header ─── */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white/50 backdrop-blur-sm z-10 shrink-0">
-                    <h2 className="text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
-                        <span className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-100">
-                            <DocumentTextIcon className="w-5 h-5 text-white" />
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-slate-100 bg-white/50 backdrop-blur-sm z-10 shrink-0 gap-3">
+                    <h2 className="text-base sm:text-xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
+                        <span className="w-6 h-6 sm:w-8 sm:h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-100">
+                            <DocumentTextIcon className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                         </span>
                         Clinical Intelligence
                     </h2>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
                         <button
                             onClick={() => {
                                 console.log("[VoiceQA] Dispatching open event...");

@@ -59,7 +59,7 @@ export default function ResultsPage() {
     }, [fileId]);
 
     return (
-        <main className="h-screen flex flex-col bg-slate-50 overflow-hidden font-sans">
+        <main className="h-[100dvh] flex flex-col bg-slate-50 overflow-hidden font-sans">
             {/* Compact Header */}
             <header className="flex items-center justify-between bg-white px-4 py-3 border-b border-slate-200 shrink-0 shadow-sm z-10">
                 <div

@@ -62,7 +62,7 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
         <div className="flex flex-col w-full h-full rounded-2xl overflow-hidden border border-slate-200 bg-white shadow-lg relative">
 
             {/* ─── Top Toolbar ─── */}
-            <div className="flex items-center justify-between p-3 px-5 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100 shrink-0">
+            <div className="flex flex-col sm:flex-row gap-y-2 items-center justify-between p-3 px-5 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-slate-100 shrink-0">
                 {/* Left: Current page indicator */}
                 <div className="flex items-center space-x-2 text-sm font-medium text-slate-700">
                     <span className="bg-white px-3 py-1 rounded-md border border-slate-200 shadow-sm tabular-nums">
@@ -102,10 +102,10 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
             </div>
 
             {/* ─── Split Content ─── */}
-            <div className="flex flex-1 overflow-hidden">
+            <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
 
                 {/* ═══ Left Pane: PDF Viewer ═══ */}
-                <div className="w-1/2 h-full border-r border-slate-200 bg-slate-100 overflow-auto">
+                <div className="w-full md:w-1/2 h-1/2 md:h-full border-b flex-shrink-0 md:flex-shrink md:border-b-0 md:border-r border-slate-200 bg-slate-100 overflow-auto">
                     {!fileUrl ? (
                         <div className="flex flex-col items-center justify-center h-full space-y-3">
                             <div className="w-8 h-8 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin"></div>
@@ -131,7 +131,7 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
                 </div>
 
                 {/* ═══ Right Pane: Clinical Summary (AI-Powered) ═══ */}
-                <div className="w-1/2 h-full flex flex-col bg-white min-w-0 border-l border-slate-200">
+                <div className="w-full md:w-1/2 h-1/2 md:h-full flex flex-col bg-white min-w-0 md:border-l border-slate-200">
                     <div className="flex-1 min-h-0 flex flex-col">
                         {fileId ? (
                             <ClinicalSummary fileId={fileId} rawResults={results} />

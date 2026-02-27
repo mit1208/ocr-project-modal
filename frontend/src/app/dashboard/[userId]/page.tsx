@@ -16,7 +16,7 @@ export default function DashboardPage({ params }: PageProps) {
     // and fetching documents for that user.
     return (
         <Suspense fallback={
-            <main className="min-h-screen bg-black flex items-center justify-center">
+            <main className="min-h-[100dvh] bg-black flex items-center justify-center">
                 <div className="w-10 h-10 border-4 border-white/5 border-t-blue-500 rounded-full animate-spin"></div>
             </main>
         }>

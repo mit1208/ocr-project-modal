@@ -20,7 +20,7 @@ export default function DynamicPage({ params }: PageProps) {
 
     return (
         <Suspense fallback={
-            <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 flex items-center justify-center">
+            <main className="min-h-[100dvh] bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 flex items-center justify-center">
                 <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin"></div>
             </main>
         }>
