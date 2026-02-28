@@ -157,11 +157,18 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
         }));
         setIsLoadingFromUrl(false);
         setIsLoading(false);
+        setStatusMessage('✓ Ready to review');
+
+        // Stop polling if it was running
+        if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
+        return true;
       } else {
         setStatusMessage('Waiting for processing results...');
+        return false;
       }
     } catch (err: any) {
       console.warn('Fetch from supabase failed:', err.message);
+      return false;
     }
   }, []);
 
@@ -172,7 +179,25 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
     setIsLoading(true);
     setStatusMessage('Loading document database...');
 
-    fetchResultsFromSupabase(fileIdFromUrl, session?.user?.id);
+    // Initial fetch, then poll if no data
+    const init = async () => {
+      const found = await fetchResultsFromSupabase(fileIdFromUrl, session?.user?.id);
+      if (!found) {
+        // Start polling every 3s for up to ~3 min
+        let attempts = 0;
+        pollTimerRef.current = setInterval(async () => {
+          attempts += 1;
+          if (attempts >= 60) {
+            if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+            setStatusMessage('No results available. Please try refreshing.');
+            setIsLoading(false);
+            return;
+          }
+          await fetchResultsFromSupabase(fileIdFromUrl, session?.user?.id);
+        }, 3000);
+      }
+    };
+    init();
 
     fetch(`/api/pdf-url?file_id=${fileIdFromUrl}&user_id=${session?.user?.id || ''}`)
       .then(r => r.json())
@@ -203,13 +228,17 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
           });
           setIsLoadingFromUrl(false);
           setIsLoading(false);
-          setStatusMessage(`Processed page ${payload.new.page}...`);
+          setStatusMessage('✓ Ready to review');
+
+          // Stop polling since realtime delivered data
+          if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
         }
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
+      if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
     };
   }, [fileIdFromUrl, file, fetchResultsFromSupabase, session]);
 
@@ -697,16 +726,30 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
               <button
                 onClick={() => { setFile(null); setOcrResults(null); setS3Url(''); router.push(session?.user?.id ? `/dashboard/${session.user.id}` : '/'); }}
                 className="p-1.5 hover:bg-zinc-900 rounded-full transition-colors group"
-                title="Back to Dashboard"
+                title="Back to Home"
               >
                 <svg className="w-5 h-5 text-zinc-500 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
                 </svg>
               </button>
               <div className="h-6 w-[1px] bg-white/10"></div>
+              {/* Clickable brand logo — always links home */}
+              <button
+                onClick={() => { setFile(null); setOcrResults(null); setS3Url(''); router.push(session?.user?.id ? `/dashboard/${session.user.id}` : '/'); }}
+                className="flex items-center space-x-2 hover:opacity-80 transition-opacity mr-2"
+              >
+                <div className="w-7 h-7 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-lg flex items-center justify-center shadow-lg border border-white/20">
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="3" strokeWidth="2.5" />
+                    <path strokeLinecap="round" strokeWidth="2" d="M12 3v3m0 12v3M3 12h3m12 0h3M5.636 5.636l2.121 2.121m8.486 8.486l2.121 2.121M5.636 18.364l2.121-2.121M18.364 5.636l-2.121 2.121" />
+                  </svg>
+                </div>
+                <span className="text-sm font-black tracking-tighter text-white hidden sm:inline">MedDoc<span className="text-blue-500 italic">AI</span></span>
+              </button>
+              <div className="h-6 w-[1px] bg-white/10"></div>
               <div className="flex flex-col">
                 <h3 className="text-xs font-black text-white truncate max-w-[200px] md:max-w-md uppercase tracking-tight">{displayFileName}</h3>
-                <p className="text-[9px] text-blue-500 font-black uppercase tracking-widest leading-none mt-0.5">{ocrResults ? `${displayPageCount} Pages Processed` : statusMessage}</p>
+                <p className="text-[9px] text-blue-500 font-black uppercase tracking-widest leading-none mt-0.5">{ocrResults && displayPageCount > 0 ? `${displayPageCount} Pages • ✓ Ready to review` : statusMessage}</p>
               </div>
             </div>
 
@@ -735,12 +778,15 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
                   )}
                 </button>
               )}
-              <button
-                onClick={() => { setFile(null); setOcrResults(null); setS3Url(''); router.push(session?.user?.id ? `/dashboard/${session.user.id}` : '/'); }}
-                className="flex items-center px-4 py-1.5 bg-white text-black text-[10px] font-black rounded-lg hover:bg-zinc-200 transition-all shadow-md active:scale-95"
-              >
-                NEW ANALYSIS
-              </button>
+              {/* Only show NEW ANALYSIS for signed-in users */}
+              {session?.user?.id && (
+                <button
+                  onClick={() => { setFile(null); setOcrResults(null); setS3Url(''); router.push(session?.user?.id ? `/dashboard/${session.user.id}` : '/'); }}
+                  className="flex items-center px-4 py-1.5 bg-white text-black text-[10px] font-black rounded-lg hover:bg-zinc-200 transition-all shadow-md active:scale-95"
+                >
+                  NEW ANALYSIS
+                </button>
+              )}
             </div>
           </div>
         )}
