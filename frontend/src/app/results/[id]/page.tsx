@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import SplitPane from '@/components/SplitPane';
 import { supabase } from '@/lib/supabase';
@@ -12,6 +12,9 @@ type OcrResult = {
     results: { page: number; text: string; bounding_boxes?: number[][]; words?: string[] }[];
 };
 
+const POLL_INTERVAL_MS = 3000;  // poll every 3s
+const MAX_POLL_ATTEMPTS = 60;   // up to ~3 minutes
+
 export default function ResultsPage() {
     const params = useParams();
     const router = useRouter();
@@ -21,42 +24,75 @@ export default function ResultsPage() {
     const [error, setError] = useState<string | null>(null);
     const [results, setResults] = useState<OcrResult | null>(null);
     const [s3Url, setS3Url] = useState<string>('');
+    const [polling, setPolling] = useState(false);
 
+    const pollRef = useRef<NodeJS.Timeout | null>(null);
+    const attemptRef = useRef(0);
+
+    const fetchResults = useCallback(async (isRetry = false) => {
+        try {
+            if (!isRetry) setIsLoading(true);
+
+            const { data, error: dbError } = await supabase
+                .from('ocr_results')
+                .select('*')
+                .eq('file_id', fileId)
+                .order('page', { ascending: true });
+
+            if (dbError) throw dbError;
+
+            if (data && data.length > 0) {
+                // Data found — stop polling and display
+                if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+                setPolling(false);
+                setError(null);
+                setResults({
+                    filename: 'Document.pdf',
+                    s3_key: `uploads/${fileId}`,
+                    results: data.map((row) => ({ page: row.page, text: row.text })),
+                });
+                setS3Url(`http://localhost:8000/api/pdf-proxy?s3_key=${encodeURIComponent(`uploads/${fileId}`)}`);
+                setIsLoading(false);
+                return true;
+            }
+            return false;
+        } catch (err: any) {
+            if (!isRetry) setError(err.message || 'An unexpected error occurred');
+            return false;
+        } finally {
+            if (!isRetry) setIsLoading(false);
+        }
+    }, [fileId]);
+
+    // Initial fetch + start polling if no data
     useEffect(() => {
         if (!fileId) return;
+        attemptRef.current = 0;
 
-        const fetchResults = async () => {
-            try {
-                setIsLoading(true);
-
-                const { data, error: dbError } = await supabase
-                    .from('ocr_results')
-                    .select('*')
-                    .eq('file_id', fileId)
-                    .order('page', { ascending: true });
-
-                if (dbError) throw dbError;
-
-                if (data && data.length > 0) {
-                    setResults({
-                        filename: 'Document.pdf',
-                        s3_key: `uploads/${fileId}`,
-                        results: data.map((row) => ({ page: row.page, text: row.text })),
-                    });
-
-                    setS3Url(`http://localhost:8000/api/pdf-proxy?s3_key=${encodeURIComponent(`uploads/${fileId}`)}`);
-                } else {
-                    throw new Error('No results ready for this Document ID yet.');
-                }
-            } catch (err: any) {
-                setError(err.message || 'An unexpected error occurred');
-            } finally {
-                setIsLoading(false);
+        const init = async () => {
+            const found = await fetchResults(false);
+            if (!found) {
+                // No data yet — start polling
+                setPolling(true);
+                setError(null);
+                pollRef.current = setInterval(async () => {
+                    attemptRef.current += 1;
+                    if (attemptRef.current >= MAX_POLL_ATTEMPTS) {
+                        if (pollRef.current) clearInterval(pollRef.current);
+                        setPolling(false);
+                        setError('No results ready for this Document ID yet. Please try refreshing.');
+                        return;
+                    }
+                    await fetchResults(true);
+                }, POLL_INTERVAL_MS);
             }
         };
+        init();
 
-        fetchResults();
-    }, [fileId]);
+        return () => {
+            if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+        };
+    }, [fileId, fetchResults]);
 
     return (
         <main className="h-[100dvh] flex flex-col bg-slate-50 overflow-hidden font-sans">
@@ -96,10 +132,17 @@ export default function ResultsPage() {
                     </div>
                 )}
 
-                {isLoading && !error && (
+                {isLoading && !error && !polling && (
                     <div className="flex flex-col items-center justify-center py-20 space-y-4">
                         <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin"></div>
                         <p className="text-slate-500 font-medium">Loading document and extracted text...</p>
+                    </div>
+                )}
+                {polling && !results && (
+                    <div className="flex flex-col items-center justify-center py-20 space-y-4">
+                        <div className="w-10 h-10 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin"></div>
+                        <p className="text-slate-600 font-medium">Waiting for OCR processing to complete...</p>
+                        <p className="text-sm text-slate-400">This page will auto-update when results are ready</p>
                     </div>
                 )}
                 {!isLoading && results && (

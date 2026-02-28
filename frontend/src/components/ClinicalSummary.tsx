@@ -80,7 +80,7 @@ interface TimelineData { status?: string; message?: string; timeline?: TimelineE
 
 interface ClinicalSummaryProps { fileId: string; rawResults?: { page: number; text: string }[] | null }
 
-type TabId = 'summary' | 'alerts' | 'timeline' | 'details' | 'transcript';
+type TabId = 'summary' | 'alerts' | 'timeline' | 'details';
 
 /* ─── Category Styles ─── */
 
@@ -114,6 +114,7 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
     const [timelineLoading, setTimelineLoading] = useState(true);
 
     const [activeTab, setActiveTab] = useState<TabId>('summary');
+    const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
     const [isSpeaking, setIsSpeaking] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -181,13 +182,18 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
         }
     };
 
-    // Fire all 4 granular calls in parallel
+    // Fire all 4 granular calls in parallel, with polling for 'processing' state
+    const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+
     useEffect(() => {
         if (!fileId) return;
 
         const base = '/api/ai';
 
-        const fetchSection = async <T,>(endpoint: string, setter: (d: T | null | { status: string, message: string }) => void, loadingSetter: (b: boolean) => void, countSetter?: (n: number) => void) => {
+        // Track which sections still need data
+        const needsRefetch = { summary: true, flags: true, details: true, timeline: true };
+
+        const fetchSection = async <T,>(endpoint: string, setter: (d: T | null | { status: string, message: string }) => void, loadingSetter: (b: boolean) => void, key: keyof typeof needsRefetch, countSetter?: (n: number) => void) => {
             try {
                 const res = await fetch(`${base}/${endpoint}/${fileId}`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -195,10 +201,13 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
 
                 if (json.status === 'processing') {
                     setter({ status: 'processing', message: json.message || "Processing document..." });
+                    // Still needs refetch
                 } else if (json.data) {
                     setter(json.data as T);
+                    needsRefetch[key] = false; // Got real data
                 } else {
                     setter(null);
+                    // null = no data yet, keep polling
                 }
 
                 if (countSetter && json.page_count) countSetter(json.page_count);
@@ -210,16 +219,44 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
             }
         };
 
-        fetchSection<SummaryData>('summary', setSummaryData, setSummaryLoading, setPageCount);
-        fetchSection<FlagsData>('flags', setFlagsData, setFlagsLoading);
-        fetchSection<DetailsData>('details', setDetailsData, setDetailsLoading);
-        fetchSection<TimelineData>('timeline', setTimelineData, setTimelineLoading);
+        const fetchAll = async (isInitial: boolean) => {
+            const promises: Promise<void>[] = [];
+            if (isInitial || needsRefetch.summary)
+                promises.push(fetchSection<SummaryData>('summary', setSummaryData, isInitial ? setSummaryLoading : () => { }, 'summary', setPageCount));
+            if (isInitial || needsRefetch.flags)
+                promises.push(fetchSection<FlagsData>('flags', setFlagsData, isInitial ? setFlagsLoading : () => { }, 'flags'));
+            if (isInitial || needsRefetch.details)
+                promises.push(fetchSection<DetailsData>('details', setDetailsData, isInitial ? setDetailsLoading : () => { }, 'details'));
+            if (isInitial || needsRefetch.timeline)
+                promises.push(fetchSection<TimelineData>('timeline', setTimelineData, isInitial ? setTimelineLoading : () => { }, 'timeline'));
+            await Promise.all(promises);
+
+            // Check if we still need polling
+            const stillNeeds = Object.values(needsRefetch).some(v => v);
+            if (!stillNeeds && pollTimerRef.current) {
+                clearInterval(pollTimerRef.current);
+                pollTimerRef.current = null;
+            }
+            return stillNeeds;
+        };
+
+        // Initial fetch
+        fetchAll(true).then(needsMore => {
+            if (needsMore) {
+                // Start polling every 5s for sections that still need data
+                pollTimerRef.current = setInterval(() => fetchAll(false), 5000);
+            }
+        });
+
+        return () => {
+            if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
+        };
     }, [fileId, rawResults?.length]);
 
     // Auto-switch to summary when first AI results arrive
     useEffect(() => {
-        if (summaryData && activeTab === 'transcript') {
-            setActiveTab('summary');
+        if (summaryData && activeTab === 'summary') {
+            // Already on summary, no-op
         }
     }, [summaryData, activeTab]);
 
@@ -231,10 +268,9 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
     const hasGroups = (detailsData?.groups && detailsData.groups.length > 0) || (detailsData?.patients && detailsData.patients.length > 0);
 
     const TABS: { id: TabId; label: string; icon: string; badge?: number; loading: boolean }[] = [
-        { id: 'summary', label: 'Summary', icon: '📝', loading: summaryLoading },
+        { id: 'summary', label: 'Overview', icon: '📝', loading: summaryLoading },
         { id: 'alerts', label: 'Alerts', icon: '⚠️', badge: (flagsData?.critical_flags?.length || 0) + (flagsData?.abnormal_findings?.length || 0), loading: flagsLoading },
         { id: 'timeline', label: 'Timeline', icon: '📅', badge: timelineData?.timeline?.length, loading: timelineLoading },
-        { id: 'transcript', label: 'Records', icon: '📄', badge: rawResults?.length, loading: false },
         { id: 'details', label: 'Details', icon: '📋', badge: detailsData?.patients?.length || detailsData?.groups?.length, loading: detailsLoading },
     ];
 
@@ -518,33 +554,115 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
                                         </>
                                     )}
 
-                                    {/* Quick Glance: Group pills */}
+                                    {/* ── AT A GLANCE ── */}
                                     {detailsLoading ? (
                                         <LoadingCard text="Extracting details..." small />
                                     ) : hasGroups ? (
-                                        <div className="bg-white border border-slate-200 rounded-xl p-4">
-                                            <div className="flex items-center gap-2 mb-3">
-                                                <ListBulletIcon className="w-5 h-5 text-slate-500" />
-                                                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">At a Glance</h3>
+                                        <div className="space-y-3">
+                                            <div className="flex items-center gap-2.5 pt-2">
+                                                <div className="w-7 h-7 bg-indigo-100 rounded-lg flex items-center justify-center">
+                                                    <ListBulletIcon className="w-4 h-4 text-indigo-600" />
+                                                </div>
+                                                <h3 className="text-sm font-bold text-slate-800 tracking-tight">At a Glance</h3>
+                                                <div className="flex-1 h-px bg-slate-200"></div>
                                             </div>
-                                            <div className="flex flex-wrap gap-2">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 {(detailsData?.groups || detailsData?.patients?.flatMap(p => p.groups) || []).map((g, i) => {
                                                     const abnormalCount = g.items.filter(it => it.status === 'abnormal').length;
+                                                    const normalCount = g.items.filter(it => it.status === 'normal').length;
+                                                    const isExpanded = expandedGroups.has(i);
+                                                    const previewItems = g.items.slice(0, 3);
+                                                    const hasMore = g.items.length > 3;
+                                                    const displayItems = isExpanded ? g.items : previewItems;
                                                     return (
-                                                        <button key={i} onClick={() => setActiveTab('details')}
-                                                            className="flex items-center gap-1.5 text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full font-medium transition-colors">
-                                                            <span>{GROUP_ICONS[g.title] || '📄'}</span>
-                                                            {g.title}
-                                                            <span className="text-slate-400">({g.items.length})</span>
-                                                            {abnormalCount > 0 && (
-                                                                <span className="bg-red-100 text-red-600 text-[10px] px-1.5 rounded-full font-bold">{abnormalCount} ⚠</span>
+                                                        <div key={i} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                                                            {/* Group Header */}
+                                                            <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
+                                                                <div className="flex items-center gap-2.5">
+                                                                    <span className="text-lg">{GROUP_ICONS[g.title] || '📄'}</span>
+                                                                    <h4 className="text-sm font-bold text-slate-800">{g.title}</h4>
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-semibold">
+                                                                        {g.items.length} item{g.items.length !== 1 ? 's' : ''}
+                                                                    </span>
+                                                                    {abnormalCount > 0 && (
+                                                                        <span className="text-[11px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                                                            <ExclamationTriangleIcon className="w-3 h-3" />
+                                                                            {abnormalCount}
+                                                                        </span>
+                                                                    )}
+                                                                    {normalCount > 0 && abnormalCount === 0 && (
+                                                                        <span className="text-[11px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                                                            <CheckCircleIcon className="w-3 h-3" />
+                                                                            All Normal
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            {/* Group Items */}
+                                                            <div className="divide-y divide-slate-50">
+                                                                {displayItems.map((item, ii) => (
+                                                                    <div key={ii} className={`flex items-center justify-between px-4 py-2.5 text-sm ${item.status === 'abnormal' ? 'bg-red-50/40' : ''}`}>
+                                                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                                            {item.status === 'abnormal' && <ExclamationTriangleIcon className="w-3.5 h-3.5 text-red-500 flex-shrink-0" />}
+                                                                            {item.status === 'normal' && <CheckCircleIcon className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />}
+                                                                            <span className="font-medium text-slate-700 truncate">{item.label}</span>
+                                                                        </div>
+                                                                        <span className={`text-sm font-semibold tabular-nums ml-3 flex-shrink-0 ${item.status === 'abnormal' ? 'text-red-600' : 'text-slate-600'}`}>
+                                                                            {item.value}
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            {/* Show More / Less */}
+                                                            {hasMore && (
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setExpandedGroups(prev => {
+                                                                            const next = new Set(prev);
+                                                                            if (next.has(i)) next.delete(i); else next.add(i);
+                                                                            return next;
+                                                                        });
+                                                                    }}
+                                                                    className="w-full py-2 text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50/50 hover:bg-blue-50 border-t border-slate-100 transition-colors"
+                                                                >
+                                                                    {isExpanded ? '▲  Show Less' : `▼  Show ${g.items.length - 3} More`}
+                                                                </button>
                                                             )}
-                                                        </button>
+                                                        </div>
                                                     );
                                                 })}
                                             </div>
                                         </div>
                                     ) : null}
+
+                                    {/* ── EXTRACTED RECORDS (merged from Records tab) ── */}
+                                    {rawResults && rawResults.length > 0 && (
+                                        <div className="space-y-3 pt-2">
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="w-7 h-7 bg-slate-100 rounded-lg flex items-center justify-center">
+                                                    <DocumentTextIcon className="w-4 h-4 text-slate-500" />
+                                                </div>
+                                                <h3 className="text-sm font-bold text-slate-800 tracking-tight">Extracted Records</h3>
+                                                <span className="text-[11px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-semibold">{rawResults.length} page{rawResults.length !== 1 ? 's' : ''}</span>
+                                                <div className="flex-1 h-px bg-slate-200"></div>
+                                            </div>
+                                            <div className="space-y-3">
+                                                {rawResults.map((r, i) => (
+                                                    <div key={i} className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                                                        <div className="flex items-center gap-2 px-4 py-2 bg-slate-100/70 border-b border-slate-200">
+                                                            <PageBadge page={r.page} />
+                                                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Page {r.page}</span>
+                                                        </div>
+                                                        <div className="px-4 py-3 whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-700">
+                                                            {r.text}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </>
                             ) : (
                                 <LoadingCard text="Waiting for text..." />
@@ -657,34 +775,6 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
                         </div>
                     )}
 
-                    {/* ── TRANSCRIPT TAB ── */}
-                    {activeTab === 'transcript' && (
-                        <div className="h-full flex flex-col p-6 overflow-auto bg-slate-50">
-                            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider mb-4 border-b border-slate-200 pb-2 flex items-center gap-2">
-                                <DocumentTextIcon className="w-5 h-5 text-slate-400" />
-                                Extracted Medical Records
-                            </h3>
-                            {rawResults && rawResults.length > 0 ? (
-                                <div className="space-y-4">
-                                    {rawResults.map((r, i) => (
-                                        <div key={i} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative pt-8">
-                                            <div className="absolute top-2 left-3">
-                                                <PageBadge page={r.page} />
-                                            </div>
-                                            <div className="whitespace-pre-wrap font-sans text-[15px] leading-relaxed text-slate-800">
-                                                {r.text}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="h-full flex flex-col items-center justify-center py-20 text-slate-400">
-                                    <div className="w-8 h-8 border-2 border-transparent border-t-blue-500 rounded-full animate-spin mb-4"></div>
-                                    <p>Waiting for OCR engine...</p>
-                                </div>
-                            )}
-                        </div>
-                    )}
 
                 </div>
             </div>
