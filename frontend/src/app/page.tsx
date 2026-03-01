@@ -686,33 +686,42 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
               </h1>
             </div>
 
-            <div className="flex items-center space-x-6">
-              <div className="hidden md:flex items-center space-x-6 mr-4 border-r pr-6 border-white/10">
-                <button
-                  onClick={() => setViewMode('private')}
-                  className={`text-[12px] font-bold tracking-wider transition-all ${viewMode === 'private' ? 'text-white' : 'text-white/40 hover:text-white'}`}
-                >
-                  PATIENT RECORDS
-                </button>
-                <button
-                  onClick={() => setViewMode('public')}
-                  className={`text-[12px] font-bold tracking-wider transition-all ${viewMode === 'public' ? 'text-blue-400' : 'text-white/40 hover:text-white'}`}
-                >
-                  PUBLIC ARCHIVE
-                </button>
-              </div>
-              <div className="flex items-center space-x-4">
-                <button
-                  onClick={() => supabase.auth.signOut()}
-                  className="text-[11px] text-white/40 hover:text-red-400 font-bold uppercase tracking-wider transition-colors mr-2 hidden md:block"
-                >
-                  SIGN OUT
-                </button>
-                <div className="w-9 h-9 bg-zinc-900 border border-white/10 rounded-full flex items-center justify-center text-white text-xs font-black shadow-inner ring-2 ring-white/5">
-                  {session.user.email?.[0].toUpperCase()}
+            {session?.user ? (
+              <div className="flex items-center space-x-6">
+                <div className="hidden md:flex items-center space-x-6 mr-4 border-r pr-6 border-white/10">
+                  <button
+                    onClick={() => setViewMode('private')}
+                    className={`text-[12px] font-bold tracking-wider transition-all ${viewMode === 'private' ? 'text-white' : 'text-white/40 hover:text-white'}`}
+                  >
+                    PATIENT RECORDS
+                  </button>
+                  <button
+                    onClick={() => setViewMode('public')}
+                    className={`text-[12px] font-bold tracking-wider transition-all ${viewMode === 'public' ? 'text-blue-400' : 'text-white/40 hover:text-white'}`}
+                  >
+                    PUBLIC ARCHIVE
+                  </button>
+                </div>
+                <div className="flex items-center space-x-4">
+                  <button
+                    onClick={() => supabase.auth.signOut()}
+                    className="text-[11px] text-white/40 hover:text-red-400 font-bold uppercase tracking-wider transition-colors mr-2 hidden md:block"
+                  >
+                    SIGN OUT
+                  </button>
+                  <div className="w-9 h-9 bg-zinc-900 border border-white/10 rounded-full flex items-center justify-center text-white text-xs font-black shadow-inner ring-2 ring-white/5">
+                    {session.user.email?.[0].toUpperCase()}
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <button
+                onClick={() => router.push('/')}
+                className="text-[11px] text-white/60 hover:text-white font-bold uppercase tracking-widest transition-colors border border-white/20 px-5 py-2 rounded-full hover:bg-white/10"
+              >
+                Sign In
+              </button>
+            )}
           </div>
         </nav>
       )}
