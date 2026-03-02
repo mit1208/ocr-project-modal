@@ -426,3 +426,72 @@ resource "aws_cloudwatch_event_target" "sfn_target" {
   arn       = aws_sfn_state_machine.ocr_pipeline.arn
   role_arn  = aws_iam_role.events_role.arn
 }
+
+# 7. Body Map API (API Gateway + Lambda)
+data "archive_file" "body_map_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/body_map"
+  output_path = "${path.module}/body_map.zip"
+}
+
+resource "aws_lambda_function" "body_map" {
+  filename         = data.archive_file.body_map_zip.output_path
+  function_name    = "ocr_body_map"
+  role             = aws_iam_role.lambda_execution_role.arn
+  handler          = "lambda_function.lambda_handler"
+  source_code_hash = data.archive_file.body_map_zip.output_base64sha256
+  runtime          = "python3.11"
+  memory_size      = 512
+  timeout          = 60
+  layers           = [aws_lambda_layer_version.shared_layer.arn]
+  environment {
+    variables = {
+      SUPABASE_URL              = var.supabase_url
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+      GEMINI_API_KEY            = var.gemini_api_key
+    }
+  }
+}
+
+resource "aws_apigatewayv2_api" "body_map_api" {
+  name          = "ocr-body-map-api"
+  protocol_type = "HTTP"
+  cors_configuration {
+    allow_origins = ["http://localhost:3000", "https://medical-document-chat.vercel.app"]
+    allow_methods = ["GET", "OPTIONS"]
+    allow_headers = ["Content-Type"]
+    max_age       = 300
+  }
+}
+
+resource "aws_apigatewayv2_integration" "body_map" {
+  api_id           = aws_apigatewayv2_api.body_map_api.id
+  integration_type = "AWS_PROXY"
+  
+  integration_method = "POST"
+  integration_uri    = aws_lambda_function.body_map.invoke_arn
+}
+
+resource "aws_apigatewayv2_route" "body_map" {
+  api_id    = aws_apigatewayv2_api.body_map_api.id
+  route_key = "GET /body-map/{file_id}"
+  target    = "integrations/${aws_apigatewayv2_integration.body_map.id}"
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.body_map_api.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+resource "aws_lambda_permission" "api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.body_map.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.body_map_api.execution_arn}/*/*"
+}
+
+output "body_map_api_url" {
+  value = aws_apigatewayv2_stage.default.invoke_url
+}

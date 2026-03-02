@@ -88,6 +88,143 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
 
         if (cached) {
             console.log(`AI Route [${endpoint}]: Serving from DB cache`);
+
+            // Special handling for body-map endpoint — uses Gemini to classify findings into body regions
+            if (endpoint === 'body-map') {
+                try {
+                    // Build per-patient finding lists
+                    const patients: { name: string; findings: { text: string; severity: string; type: string }[] }[] = [];
+
+                    // Shared findings (flags apply to all patients)
+                    const sharedFindings: { text: string; severity: string; type: string }[] = [];
+                    if (cached.critical_flags) {
+                        for (const f of cached.critical_flags) {
+                            sharedFindings.push({ text: f.flag, severity: 'critical', type: 'critical_flag' });
+                        }
+                    }
+                    if (cached.abnormal_findings) {
+                        for (const f of cached.abnormal_findings) {
+                            sharedFindings.push({ text: `${f.finding}: ${f.value} (ref: ${f.reference})`, severity: f.severity === 'CRITICAL' ? 'critical' : 'abnormal', type: 'abnormal_finding' });
+                        }
+                    }
+
+                    // If multiple patients exist, create per-patient entries
+                    const patientEntries = cached.patients && cached.patients.length > 1 ? cached.patients : null;
+
+                    if (patientEntries) {
+                        // Multi-patient: distribute shared findings + per-patient group items
+                        const perPatientGroups = cached.groups
+                            ? (Array.isArray(cached.groups[0]?.items) ? [{ patient_name: 'All', groups: cached.groups }] : [])
+                            : [];
+
+                        // Check if details has per-patient grouping via patients array in details
+                        // For now, shared findings go to all patients; group items distributed if possible
+                        for (let pi = 0; pi < patientEntries.length; pi++) {
+                            const p = patientEntries[pi];
+                            const pFindings = [...sharedFindings]; // each patient gets the flags
+
+                            // Add group items as patient-specific findings
+                            if (cached.groups) {
+                                for (const g of cached.groups) {
+                                    for (const item of g.items) {
+                                        if (item.status === 'abnormal') {
+                                            pFindings.push({ text: `${item.label}: ${item.value}`, severity: 'abnormal', type: 'detail' });
+                                        }
+                                    }
+                                }
+                            }
+
+                            patients.push({
+                                name: p.patient_name || `Patient ${pi + 1}`,
+                                findings: pFindings,
+                            });
+                        }
+                    } else {
+                        // Single patient (or no patient info)
+                        const singleFindings = [...sharedFindings];
+                        if (cached.groups) {
+                            for (const g of cached.groups) {
+                                for (const item of g.items) {
+                                    if (item.status === 'abnormal') {
+                                        singleFindings.push({ text: `${item.label}: ${item.value}`, severity: 'abnormal', type: 'detail' });
+                                    }
+                                }
+                            }
+                        }
+                        const patientName = cached.patients?.[0]?.patient_name || 'Patient';
+                        patients.push({ name: patientName, findings: singleFindings });
+                    }
+
+                    // Deduplicate: run Gemini once with ALL unique findings across all patients
+                    const allUnique = new Map<string, { text: string; severity: string; type: string }>();
+                    for (const p of patients) {
+                        for (const f of p.findings) {
+                            allUnique.set(f.text, f);
+                        }
+                    }
+                    const allFindings = Array.from(allUnique.values());
+
+                    if (allFindings.length === 0) {
+                        return NextResponse.json({ data: { patients: patients.map(p => ({ name: p.name, regions: {} })) } });
+                    }
+
+                    const findingsText = allFindings.map((f, i) => `${i + 1}. [${f.severity.toUpperCase()}] ${f.text}`).join('\n');
+
+                    const bodyMapPrompt = `You are a medical AI. Given the following clinical findings, classify each finding into the most relevant body region.
+
+Available body regions (use EXACTLY these keys):
+- head (brain, neurological, headache, mental health, eyes, ears)
+- neck (thyroid, throat, ENT, cervical)
+- chest (lungs, respiratory, pulmonary, breathing)
+- heart (cardiac, blood pressure, cholesterol, cardiovascular, pulse)
+- abdomen (GI, liver, kidney, pancreas, stomach, intestinal, hepatic, renal)
+- left_arm (left arm, left hand, left shoulder)
+- right_arm (right arm, right hand, right shoulder)
+- left_leg (left leg, left foot, left knee, left hip)
+- right_leg (right leg, right foot, right knee, right hip)
+- spine (back, spinal, lumbar, vertebral)
+- pelvis (urological, reproductive, bladder, prostate, gynecological)
+- skin (dermatological, rash, wound, lesion)
+- systemic (blood, glucose, hemoglobin, WBC, platelets, infection, fever, general)
+
+Findings:
+${findingsText}
+
+Return a JSON object with body region keys, each containing an array of finding indices (1-based) that belong to that region. A finding can appear in multiple regions if relevant.
+
+Return ONLY the JSON object, no markdown formatting.`;
+
+                    const bodyResult = await model.generateContent(bodyMapPrompt);
+                    const bodyText = bodyResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
+                    const regionMapping: Record<string, number[]> = JSON.parse(bodyText);
+
+                    // Build per-patient region data using the shared classification
+                    const result = patients.map(patient => {
+                        const patientFindingTexts = new Set(patient.findings.map(f => f.text));
+                        const regions: Record<string, { findings: any[]; severity: string }> = {};
+
+                        for (const [region, indices] of Object.entries(regionMapping)) {
+                            const regionFindings = (indices as number[])
+                                .map(i => allFindings[i - 1])
+                                .filter(f => f && patientFindingTexts.has(f.text));
+                            if (regionFindings.length === 0) continue;
+                            const hasCritical = regionFindings.some(f => f.severity === 'critical');
+                            regions[region] = {
+                                findings: regionFindings,
+                                severity: hasCritical ? 'critical' : 'abnormal'
+                            };
+                        }
+
+                        return { name: patient.name, regions };
+                    });
+
+                    return NextResponse.json({ data: { patients: result } });
+                } catch (bodyMapErr: any) {
+                    console.error('Body map classification error:', bodyMapErr);
+                    return NextResponse.json({ data: { patients: [{ name: 'Patient', regions: {} }] }, error: bodyMapErr.message });
+                }
+            }
+
             const mapping: Record<string, any> = {
                 'summary': { document_type: cached.document_type, clinical_summary: cached.clinical_summary, patients: cached.patients },
                 'flags': { critical_flags: cached.critical_flags, abnormal_findings: cached.abnormal_findings },

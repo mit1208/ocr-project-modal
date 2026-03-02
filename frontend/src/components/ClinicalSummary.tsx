@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
+
+const BodyMap3D = dynamic<any>(() => import('./BodyMap3D'), { ssr: false });
 import {
     ExclamationTriangleIcon,
     BeakerIcon,
@@ -17,8 +20,8 @@ import {
     ListBulletIcon,
     UserCircleIcon,
     PaperAirplaneIcon,
-    MicrophoneIcon,
-    SpeakerWaveIcon
+    SpeakerWaveIcon,
+    SparklesIcon
 } from '@heroicons/react/24/outline';
 
 /* ─── Type Definitions ─── */
@@ -80,7 +83,7 @@ interface TimelineData { status?: string; message?: string; timeline?: TimelineE
 
 interface ClinicalSummaryProps { fileId: string; rawResults?: { page: number; text: string }[] | null }
 
-type TabId = 'summary' | 'alerts' | 'timeline' | 'details';
+type TabId = 'summary' | 'alerts' | 'timeline' | 'details' | 'bodymap';
 
 /* ─── Category Styles ─── */
 
@@ -272,6 +275,7 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
         { id: 'alerts', label: 'Alerts', icon: '⚠️', badge: (flagsData?.critical_flags?.length || 0) + (flagsData?.abnormal_findings?.length || 0), loading: flagsLoading },
         { id: 'timeline', label: 'Timeline', icon: '📅', badge: timelineData?.timeline?.length, loading: timelineLoading },
         { id: 'details', label: 'Details', icon: '📋', badge: detailsData?.patients?.length || detailsData?.groups?.length, loading: detailsLoading },
+        { id: 'bodymap', label: 'Body Map', icon: '🫀', loading: false },
     ];
 
     return (
@@ -329,7 +333,7 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
                             }}
                             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-xl shadow-blue-100 hover:bg-blue-700 hover:-translate-y-0.5 transition-all active:translate-y-0"
                         >
-                            <MicrophoneIcon className="w-4 h-4" />
+                            <SparklesIcon className="w-4 h-4" />
                             Ask AI Assistant
                         </button>
                         {isSpeaking && (
@@ -775,6 +779,12 @@ export default function ClinicalSummary({ fileId, rawResults }: ClinicalSummaryP
                         </div>
                     )}
 
+                    {/* ── BODY MAP TAB ── */}
+                    {activeTab === 'bodymap' && (
+                        <div className="h-full w-full min-h-[400px]">
+                            <BodyMap3D fileId={fileId} patients={summaryData?.patients} />
+                        </div>
+                    )}
 
                 </div>
             </div>

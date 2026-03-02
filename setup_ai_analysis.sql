@@ -22,6 +22,9 @@ CREATE TRIGGER trigger_sync_analysis_public
 
 ALTER TABLE public.ai_analysis ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE ai_analysis
+ADD COLUMN IF NOT EXISTS body_map_regions JSONB DEFAULT NULL;
+
 CREATE POLICY "Users can view their own or public ai analysis"
     ON public.ai_analysis FOR SELECT
     USING (auth.uid() = user_id OR is_public = TRUE);
