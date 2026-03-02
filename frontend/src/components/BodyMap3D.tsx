@@ -392,15 +392,25 @@ function Particles() {
    LOADING FALLBACK
 ═══════════════════════════════════════════════════════════════ */
 
-function LoadingFallback() {
+function LoadingFallback({ label = 'LOADING…', sublabel = '' }: { label?: string, sublabel?: string }) {
     return (
         <Html center>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-                <div style={{ position: 'relative', width: 44, height: 44 }}>
-                    <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid #1e3a5f' }} />
-                    <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid transparent', borderTopColor: '#3b82f6', animation: 'spin 1s linear infinite' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                <div style={{ position: 'relative', width: 64, height: 64 }}>
+                    <div style={{ position: 'absolute', inset: -8, borderRadius: '50%', border: '1px dashed rgba(59,130,246,0.2)', animation: 'spin 8s linear infinite reverse' }} />
+                    <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid rgba(30,58,95,0.4)' }} />
+                    <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid transparent', borderTopColor: '#3b82f6', animation: 'spin 1s cubic-bezier(0.5, 0.1, 0.4, 0.9) infinite' }} />
+                    <div style={{ position: 'absolute', inset: 12, borderRadius: '50%', background: 'radial-gradient(circle, #3b82f644 0%, transparent 70%)', filter: 'blur(4px)', animation: 'pulse 2s ease-in-out infinite' }} />
                 </div>
-                <p style={{ color: '#64748b', fontSize: 11, fontFamily: 'monospace', letterSpacing: '0.08em' }}>LOADING…</p>
+                <div style={{ textAlign: 'center' }}>
+                    <p style={{ color: '#f1f5f9', fontSize: 13, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.15em', margin: 0, textShadow: '0 0 10px rgba(59,130,246,0.3)' }}>{label}</p>
+                    {sublabel && <p style={{ color: '#64748b', fontSize: 9, fontWeight: 500, margin: '4px 0 0 0', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{sublabel}</p>}
+                </div>
+                <style dangerouslySetInnerHTML={{
+                    __html: `
+                    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+                    @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 0.7; transform: scale(1.1); } }
+                `}} />
             </div>
         </Html>
     );
@@ -521,10 +531,11 @@ function FindingsHotspots({ regions, onSelectRegion, selectedRegion }: {
    SCENE
 ═══════════════════════════════════════════════════════════════ */
 
-function Scene({ regions, onSelectRegion, selectedRegion }: {
+function Scene({ regions, onSelectRegion, selectedRegion, isAnalysing }: {
     regions: Record<string, string> | null;
     onSelectRegion: (r: string) => void;
     selectedRegion: string | null;
+    isAnalysing?: boolean;
 }) {
     return (
         <group>
@@ -535,7 +546,8 @@ function Scene({ regions, onSelectRegion, selectedRegion }: {
                     onSelectRegion={onSelectRegion}
                     selectedRegion={selectedRegion}
                 />
-                <FindingsHotspots regions={regions} onSelectRegion={onSelectRegion} selectedRegion={selectedRegion} />
+                {!isAnalysing && <FindingsHotspots regions={regions} onSelectRegion={onSelectRegion} selectedRegion={selectedRegion} />}
+                {isAnalysing && <LoadingFallback label="ANALYZING…" sublabel="MAPPING ANATOMY" />}
             </Suspense>
         </group>
     );
@@ -708,19 +720,45 @@ export default function BodyMap3D({ fileId, patients }: BodyMap3DProps) {
     useEffect(() => {
         if (!fileId) return;
         let alive = true;
-        setIsLoading(true);
-        setError(null);
+        let pollTimer: NodeJS.Timeout;
 
         const baseUrl = process.env.NEXT_PUBLIC_BODY_MAP_API_URL ?? '';
         if (!baseUrl) { setIsLoading(false); return; }
 
-        fetch(`${baseUrl}/body-map/${fileId}`)
-            .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-            .then(data => { if (alive) setRegionsData(data.data); })
-            .catch(err => { if (alive) setError(err.message ?? 'Failed to load'); })
-            .finally(() => { if (alive) setIsLoading(false); });
+        const fetchData = async () => {
+            if (!alive) return;
+            setIsLoading(true);
 
-        return () => { alive = false; };
+            try {
+                const r = await fetch(`${baseUrl}/body-map/${fileId}`);
+                if (!r.ok) {
+                    if (r.status === 404) {
+                        // Analysis not ready, poll again
+                        pollTimer = setTimeout(fetchData, 4000);
+                        return;
+                    }
+                    throw new Error(`HTTP ${r.status}`);
+                }
+                const data = await r.json();
+                if (alive) {
+                    setRegionsData(data.data);
+                    setIsLoading(false);
+                    setError(null);
+                }
+            } catch (err: any) {
+                if (alive) {
+                    setError(err.message ?? 'Failed to load');
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        fetchData();
+
+        return () => {
+            alive = false;
+            if (pollTimer) clearTimeout(pollTimer);
+        };
     }, [fileId]);
 
     const activeRegionData = selectedRegion && currentRegionsRaw ? currentRegionsRaw[selectedRegion] : null;
@@ -767,13 +805,13 @@ export default function BodyMap3D({ fileId, patients }: BodyMap3DProps) {
                         border: '1px solid rgba(255,255,255,0.05)',
                     }}>
                         <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#3b82f6', boxShadow: '0 0 6px #3b82f6' }} />
-                        <span style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em' }}>
+                        <span style={{ color: '#e2e8f0', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em' }}>
                             {currentPatient.patient_name}
                         </span>
                         {currentPatient.date_of_birth && (
                             <>
-                                <div style={{ width: 1, height: 10, background: 'rgba(255,255,255,0.07)' }} />
-                                <span style={{ color: '#334155', fontSize: 10 }}>DOB {currentPatient.date_of_birth}</span>
+                                <div style={{ width: 1, height: 10, background: 'rgba(255,255,255,0.1)' }} />
+                                <span style={{ color: '#94a3b8', fontSize: 10 }}>DOB {currentPatient.date_of_birth}</span>
                             </>
                         )}
                     </div>
@@ -801,8 +839,8 @@ export default function BodyMap3D({ fileId, patients }: BodyMap3DProps) {
                     background: 'rgba(7,12,24,0.88)', backdropFilter: 'blur(14px)',
                     border: '1px solid rgba(255,255,255,0.05)', pointerEvents: 'none',
                 }}>
-                    <p style={{ color: '#1e293b', fontSize: 8, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 4 }}>Chief Complaint</p>
-                    <p style={{ color: '#64748b', fontSize: 11, lineHeight: 1.5, margin: 0 }}>{currentPatient.chief_complaint}</p>
+                    <p style={{ color: '#94a3b8', fontSize: 8, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 4 }}>Chief Complaint</p>
+                    <p style={{ color: '#e2e8f0', fontSize: 11, lineHeight: 1.5, margin: 0 }}>{currentPatient.chief_complaint}</p>
                 </div>
             )}
 
@@ -813,7 +851,7 @@ export default function BodyMap3D({ fileId, patients }: BodyMap3DProps) {
                 background: 'rgba(7,12,24,0.88)', backdropFilter: 'blur(14px)',
                 border: '1px solid rgba(255,255,255,0.05)', pointerEvents: 'none',
             }}>
-                <p style={{ color: '#1e293b', fontSize: 8, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 7 }}>Anatomy</p>
+                <p style={{ color: '#94a3b8', fontSize: 8, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 7 }}>Anatomy</p>
                 {[
                     { label: 'Organs', c: '#6b2a2a' },
                     { label: 'Blood Vessels', c: '#223460' },
@@ -822,22 +860,22 @@ export default function BodyMap3D({ fileId, patients }: BodyMap3DProps) {
                 ].map(({ label, c }) => (
                     <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
                         <div style={{ width: 8, height: 8, borderRadius: 2, background: c, opacity: 0.75 }} />
-                        <span style={{ color: '#334155', fontSize: 10 }}>{label}</span>
+                        <span style={{ color: '#cbd5e1', fontSize: 10 }}>{label}</span>
                     </div>
                 ))}
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                    <p style={{ color: '#1e293b', fontSize: 8, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 6 }}>Markers</p>
+                    <p style={{ color: '#94a3b8', fontSize: 8, fontWeight: 700, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 6 }}>Markers</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: CRITICAL_COLOR, boxShadow: `0 0 5px ${CRITICAL_COLOR}` }} />
-                        <span style={{ color: '#475569', fontSize: 10 }}>Critical</span>
+                        <span style={{ color: '#cbd5e1', fontSize: 10 }}>Critical</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: ABNORMAL_COLOR, boxShadow: `0 0 5px ${ABNORMAL_COLOR}` }} />
-                        <span style={{ color: '#475569', fontSize: 10 }}>Abnormal</span>
+                        <span style={{ color: '#cbd5e1', fontSize: 10 }}>Abnormal</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                         <div style={{ width: 8, height: 8, borderRadius: '50%', background: NORMAL_COLOR, boxShadow: `0 0 5px ${NORMAL_COLOR}` }} />
-                        <span style={{ color: '#475569', fontSize: 10 }}>Normal</span>
+                        <span style={{ color: '#cbd5e1', fontSize: 10 }}>Normal</span>
                     </div>
                 </div>
             </div>

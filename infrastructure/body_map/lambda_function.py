@@ -11,7 +11,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Initialize Gemini and Supabase optionally outside for reuse
 genai.configure(api_key=GEMINI_API_KEY)
-# We use gemini-1.5-pro or flash depending on preference. Using flash-lite is faster if available, but let's use gemini-1.5-flash as default, or whatever the codebase uses.
+# We use gemini-1.5-pro or flash depending on preference. Using flash-lite is faster if available.
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 model = genai.GenerativeModel(GEMINI_MODEL)
 
@@ -70,6 +70,20 @@ def lambda_handler(event, context):
                 p_name = p.get("patient_name", f"Patient {pi + 1}")
                 p_pages = p.get("pages_referenced") or p.get("pages") or []
                 
+                # Add Chief Complaint and Summary as findings
+                if p.get("chief_complaint"):
+                    p_findings.append({
+                        "text": f"Chief Complaint: {p['chief_complaint']}",
+                        "severity": "abnormal",
+                        "type": "complaint"
+                    })
+                if p.get("summary"):
+                    p_findings.append({
+                        "text": f"Summary: {p['summary']}",
+                        "severity": "abnormal",
+                        "type": "summary"
+                    })
+
                 # Add overall flags but restrict to patient via page if possible
                 if cached.get("critical_flags"):
                     for f in cached["critical_flags"]:
@@ -118,6 +132,22 @@ def lambda_handler(event, context):
                 })
         else:
             single_findings = []
+            p = patient_entries[0] if (patient_entries and len(patient_entries) > 0) else {}
+            
+            # Add Chief Complaint and Summary as findings
+            if p.get("chief_complaint"):
+                single_findings.append({
+                    "text": f"Chief Complaint: {p['chief_complaint']}",
+                    "severity": "abnormal",
+                    "type": "complaint"
+                })
+            if p.get("summary"):
+                single_findings.append({
+                    "text": f"Summary: {p['summary']}",
+                    "severity": "abnormal",
+                    "type": "summary"
+                })
+
             if cached.get("critical_flags"):
                 for f in cached["critical_flags"]:
                     single_findings.append({
@@ -135,7 +165,7 @@ def lambda_handler(event, context):
                     })
             
             p_groups = cached.get("groups")
-            if patient_entries and len(patient_entries) > 0 and patient_entries[0].get("groups"):
+            if (patient_entries and len(patient_entries) > 0 and patient_entries[0].get("groups")):
                 p_groups = patient_entries[0].get("groups")
                 
             if p_groups:
@@ -147,7 +177,7 @@ def lambda_handler(event, context):
                                 "severity": "abnormal",
                                 "type": "detail"
                             })
-            patient_name = patient_entries[0].get("patient_name", "Patient") if patient_entries else "Patient"
+            patient_name = p.get("patient_name", "Patient") if p else "Patient"
             patients_output.append({"name": patient_name, "findings": single_findings})
 
         # 4. Process each patient's findings individually
