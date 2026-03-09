@@ -200,6 +200,24 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const recognitionRef = useRef<any>(null); // Use existing WebSpeech for transcription
 
+    // Initialize audio element once
+    useEffect(() => {
+        audioRef.current = new Audio();
+    }, []);
+
+    // Unlock audio context on user gesture
+    const unlockAudio = useCallback(() => {
+        if (audioRef.current) {
+            // Play silence to unlock the element for future use
+            if (!audioRef.current.src) {
+                audioRef.current.src = "data:audio/mp3;base64,//NExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqo=";
+            }
+            audioRef.current.play().then(() => {
+                // Pause immediately or let it play silence
+            }).catch(() => { });
+        }
+    }, []);
+
     // Auto-scroll messages
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -233,12 +251,21 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
 
             if (data.audio) {
                 console.log(`[VoiceAssistant] Playing audio from Gemini TTS service`);
-                const audio = new Audio(`data:${data.mimeType};base64,${data.audio}`);
-                audioRef.current = audio;
+                if (!audioRef.current) audioRef.current = new Audio();
+                const audio = audioRef.current;
+                audio.src = `data:${data.mimeType};base64,${data.audio}`;
+
                 audio.onended = () => {
                     setState("idle");
                 };
-                await audio.play();
+
+                try {
+                    await audio.play();
+                } catch (playErr) {
+                    console.warn("Audio playback blocked, falling back to silent/text-only:", playErr);
+                    // Just stay idle but message is already rendered
+                    setState("idle");
+                }
             } else if (data.answer) {
                 // Fallback to Browser Text-to-Speech
                 console.log(`[VoiceAssistant] Using Browser TTS (Fallback)`);
@@ -250,7 +277,12 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
                 if (googleVoice) utterance.voice = googleVoice;
 
                 utterance.onend = () => setState("idle");
-                utterance.onerror = () => setState("idle");
+                utterance.onerror = (e) => {
+                    console.warn("TTS Error:", e);
+                    setState("idle");
+                };
+
+                // Sometimes browser TTS is also blocked without strict user interaction
                 window.speechSynthesis.speak(utterance);
             } else {
                 setState("idle");
@@ -259,9 +291,6 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
             console.error(err);
             setErrorMsg(err.message || "Failed to get AI response");
             setState("error");
-
-            // Final fallback: if we have any text, try to speak it? 
-            // Usually we don't have text here because the error happened before.
         }
     };
 
@@ -330,12 +359,14 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
     }, []);
 
     const handleToggle = useCallback(() => {
+        unlockAudio(); // Attempt to unlock audio immediately upon user interaction
+
         if (state === "idle" || state === "error") {
             startListening();
         } else {
             stopEverything();
         }
-    }, [state, startListening, stopEverything]);
+    }, [state, startListening, stopEverything, unlockAudio]);
 
     // Cleanup on unmount
     useEffect(() => () => stopEverything(), [stopEverything]);
@@ -484,6 +515,7 @@ export default function VoiceQA({ fileId, documentTitle }: VoiceQAProps) {
                         <form
                             onSubmit={(e) => {
                                 e.preventDefault();
+                                unlockAudio(); // Unlock audio on manual submit
                                 const input = (e.currentTarget.elements.namedItem('question') as HTMLInputElement).value;
                                 if (input) {
                                     addMessage("user", input);
