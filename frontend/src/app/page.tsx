@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import VoiceQA from '@/components/VoiceAssistant';
 import HeartbeatSignIn from '@/components/HeartbeatSignIn';
 import SlmWorkspace from '@/components/SlmWorkspace';
+import FeatureBanner from '@/components/FeatureBanner';
 type OcrResult = {
   filename: string;
   s3_key: string;
@@ -395,6 +396,9 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
         {/* Hero Section */}
         <section className="pt-24 pb-10 px-10 relative z-10">
           <div className="max-w-5xl mx-auto text-center space-y-4 animate-in relative z-10">
+            <div className="delay-1 animate-in opacity-0 fill-mode-forwards">
+              <FeatureBanner onCtaClick={() => document.getElementById('archive')?.scrollIntoView({ behavior: 'smooth' })} />
+            </div>
             <h1 className="text-4xl md:text-[64px] font-black tracking-tighter leading-[1.2] text-gradient py-2">
               Decipher Medical Data.
             </h1>
