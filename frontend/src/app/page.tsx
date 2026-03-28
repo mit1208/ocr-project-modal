@@ -837,20 +837,20 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
             {/* Right Column: Upload & History */}
             <div className="lg:col-span-3 space-y-16">
               <section className="space-y-8">
+                <div className="flex items-end justify-between px-2 text-white">
+                  <div>
+                    <h2 className="text-[11px] font-bold text-blue-500 uppercase tracking-widest leading-none mb-2">Processing Engine</h2>
+                    <h1 className="text-5xl font-black text-white tracking-tighter">Upload PDF</h1>
+                  </div>
+                </div>
+                <FileUpload onFileSelect={handleFileUpload} isLoading={isLoading} />
+              </section>
+
+              <section className="space-y-8">
                 <SlmWorkspace
                   accessToken={session?.access_token || ''}
                   hasDocuments={userDocuments.length > 0}
                 />
-              </section>
-
-              <section className="space-y-8">
-                <div className="flex items-end justify-between px-2 text-white">
-                  <div>
-                    <h2 className="text-[11px] font-bold text-blue-500 uppercase tracking-widest leading-none mb-2">Processing Engine</h2>
-                    <h1 className="text-5xl font-black text-white tracking-tighter">Initialize Analysis</h1>
-                  </div>
-                </div>
-                <FileUpload onFileSelect={handleFileUpload} isLoading={isLoading} />
               </section>
 
               <section className="space-y-10 pt-8">
