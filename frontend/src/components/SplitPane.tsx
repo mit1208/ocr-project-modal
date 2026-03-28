@@ -1,13 +1,15 @@
 'use client';
 
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import {
     MagnifyingGlassPlusIcon,
     MagnifyingGlassMinusIcon,
+    MagnifyingGlassIcon,
     DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import ClinicalSummary from './ClinicalSummary';
+import PdfSearchBar from './PdfSearchBar';
 
 const PdfViewer = dynamic<any>(() => import('./PdfViewer'), { ssr: false });
 
@@ -32,6 +34,10 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
     const [currentPage, setCurrentPage] = useState(1);
     const [numPages, setNumPages] = useState<number>(0);
     const [scale, setScale] = useState(1.0);
+    const [targetPage, setTargetPage] = useState<number | null>(null);
+    const [isSearchOpen, setIsSearchOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const pdfPaneRef = useRef<HTMLDivElement>(null);
 
     // Use S3 URL if available, otherwise fall back to local blob from File
     const fileUrl = useMemo(() => {
@@ -52,8 +58,33 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
         setCurrentPage(page);
     }, []);
 
+    const handleNavigateToPage = useCallback((page: number) => {
+        setTargetPage(page);
+    }, []);
+
     const handleLoadSuccess = useCallback((n: number) => {
         setNumPages(n);
+    }, []);
+
+    // Cmd/Ctrl+F to open search
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+                e.preventDefault();
+                setIsSearchOpen(true);
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
+    const handleSearchClose = useCallback(() => {
+        setIsSearchOpen(false);
+        setSearchTerm('');
+    }, []);
+
+    const handleSearchTermChange = useCallback((term: string) => {
+        setSearchTerm(term);
     }, []);
 
     // No early return — show the layout even while PDF is loading
@@ -81,8 +112,20 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
                     )}
                 </div>
 
-                {/* Right: Zoom */}
+                {/* Right: Search + Zoom */}
                 <div className="flex items-center space-x-2">
+                    <button
+                        onClick={() => setIsSearchOpen((v) => !v)}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border shadow-sm hover:shadow transition-all ${
+                            isSearchOpen
+                                ? 'bg-blue-50 border-blue-300 text-blue-700'
+                                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                        title="Search document"
+                    >
+                        <MagnifyingGlassIcon className="w-4 h-4 shrink-0" />
+                        <span className="text-xs font-bold tracking-tight">Search</span>
+                    </button>
                     <button
                         onClick={zoomOut}
                         className="p-1.5 rounded-md bg-white border border-slate-200 shadow-sm hover:bg-slate-50 hover:shadow transition-all"
@@ -105,7 +148,15 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
 
                 {/* ═══ Left Pane: PDF Viewer ═══ */}
-                <div className="w-full md:w-1/2 h-1/2 md:h-full border-b flex-shrink-0 md:flex-shrink md:border-b-0 md:border-r border-slate-200 bg-slate-100 overflow-auto">
+                <div ref={pdfPaneRef} className="relative w-full md:w-1/2 h-1/2 md:h-full border-b flex-shrink-0 md:flex-shrink md:border-b-0 md:border-r border-slate-200 bg-slate-100 overflow-auto">
+                    {isSearchOpen && (
+                        <PdfSearchBar
+                            ocrResults={results}
+                            onNavigateToPage={handleNavigateToPage}
+                            onSearchTermChange={handleSearchTermChange}
+                            onClose={handleSearchClose}
+                        />
+                    )}
                     {!fileUrl ? (
                         <div className="flex flex-col items-center justify-center h-full space-y-3">
                             <div className="w-8 h-8 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin"></div>
@@ -117,6 +168,8 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
                             scale={scale}
                             onLoadSuccess={handleLoadSuccess}
                             onPageChange={handlePageChange}
+                            targetPage={targetPage}
+                            searchTerm={searchTerm}
                         />
                     ) : (
                         <div className="w-full h-full overflow-auto flex items-center justify-center p-6">
@@ -134,7 +187,7 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
                 <div className="w-full md:w-1/2 h-1/2 md:h-full flex flex-col bg-white min-w-0 md:border-l border-slate-200">
                     <div className="flex-1 min-h-0 flex flex-col">
                         {fileId ? (
-                            <ClinicalSummary fileId={fileId} rawResults={results} />
+                            <ClinicalSummary fileId={fileId} rawResults={results} onNavigateToPage={handleNavigateToPage} />
                         ) : isLoading ? (
                             <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4">
                                 <div className="relative">

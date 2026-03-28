@@ -35,4 +35,3 @@ CREATE POLICY "Users can insert their own ocr results"
 CREATE POLICY "Users can update their own ocr results"
     ON public.ocr_results FOR UPDATE
     USING (auth.uid() = user_id);
-

@@ -28,6 +28,8 @@ A `Makefile` is provided for quick commands:
 - **Cleanup**: `make clean`
 
 ## Manual Deployment
+1. export $(grep -v '^#' backend/.env | xargs) && make -C infrastructure deploy
+2. **Initialize:** `./terraform init`
+3. **Apply:** `./terraform apply -var-file=terraform.tfvars`
 
-1. **Initialize:** `./terraform init`
-2. **Apply:** `./terraform apply -var-file=terraform.tfvars`
+

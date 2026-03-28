@@ -7,6 +7,7 @@ import SplitPane from '@/components/SplitPane';
 import { supabase } from '@/lib/supabase';
 import VoiceQA from '@/components/VoiceAssistant';
 import HeartbeatSignIn from '@/components/HeartbeatSignIn';
+import SlmWorkspace from '@/components/SlmWorkspace';
 type OcrResult = {
   filename: string;
   s3_key: string;
@@ -199,10 +200,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
     };
     init();
 
-    fetch(`/api/pdf-url?file_id=${fileIdFromUrl}&user_id=${session?.user?.id || ''}`)
-      .then(r => r.json())
-      .then(d => { if (d.url) setS3Url(d.url); })
-      .catch(e => console.error("Failed to load PDF URL", e));
+    setS3Url(`/api/pdf/${encodeURIComponent(fileIdFromUrl)}`);
 
     const channel = supabase
       .channel(`results-url-${fileIdFromUrl}`)
@@ -834,6 +832,13 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
 
             {/* Right Column: Upload & History */}
             <div className="lg:col-span-3 space-y-16">
+              <section className="space-y-8">
+                <SlmWorkspace
+                  accessToken={session?.access_token || ''}
+                  hasDocuments={userDocuments.length > 0}
+                />
+              </section>
+
               <section className="space-y-8">
                 <div className="flex items-end justify-between px-2 text-white">
                   <div>

@@ -1,18 +1,31 @@
 CREATE TABLE IF NOT EXISTS public.ai_analysis (
-    file_id TEXT PRIMARY KEY,
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    document_type TEXT,
-    clinical_summary TEXT,
-    patients JSONB,
-    critical_flags JSONB,
-    abnormal_findings JSONB,
-    timeline JSONB,
-    groups JSONB,
-    is_public BOOLEAN DEFAULT FALSE,
-    is_complete BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+  file_id text not null,
+  user_id uuid null,
+  document_type text null,
+  clinical_summary text null,
+  patients jsonb null,
+  critical_flags jsonb null,
+  abnormal_findings jsonb null,
+  timeline jsonb null,
+  timeline_index jsonb null,
+  groups jsonb null,
+  is_complete boolean null default false,
+  created_at timestamp with time zone null default now(),
+  updated_at timestamp with time zone null default now(),
+  audio_summary text null,
+  is_public boolean null default false,
+  body_map_regions jsonb null,
+  summary text null,
+  sections jsonb null,
+  page_index jsonb null,
+  document_index jsonb null,
+  case_brief jsonb null,
+  extracted_toc jsonb null,
+  clinical_intake jsonb null,
+  contradictions jsonb null,
+  constraint ai_analysis_pkey primary key (file_id),
+  constraint ai_analysis_user_id_fkey foreign KEY (user_id) references auth.users (id) ON DELETE CASCADE
+) TABLESPACE pg_default;
 
 -- Trigger to sync is_public status from documents table
 DROP TRIGGER IF EXISTS trigger_sync_analysis_public ON public.ai_analysis;
@@ -22,8 +35,12 @@ CREATE TRIGGER trigger_sync_analysis_public
 
 ALTER TABLE public.ai_analysis ENABLE ROW LEVEL SECURITY;
 
-ALTER TABLE ai_analysis
-ADD COLUMN IF NOT EXISTS body_map_regions JSONB DEFAULT NULL;
+-- Note: body_map_regions is now part of the initial CREATE TABLE
+ALTER TABLE public.ai_analysis
+ADD COLUMN IF NOT EXISTS document_index jsonb,
+ADD COLUMN IF NOT EXISTS timeline_index jsonb,
+ADD COLUMN IF NOT EXISTS clinical_intake jsonb,
+ADD COLUMN IF NOT EXISTS contradictions jsonb;
 
 CREATE POLICY "Users can view their own or public ai analysis"
     ON public.ai_analysis FOR SELECT

@@ -22,6 +22,15 @@ the provided pages and return it in the JSON schema below.
 
 Use <page_X>…</page_X> tags to determine and reference accurate page numbers.
 
+CRITICAL ACCURACY RULES:
+- DATES: Normalize ALL dates to YYYY-MM-DD format (e.g., "1/15/26" → "2026-01-15", "January 15, 2026" → "2026-01-15"). For 2-digit years, assume 2000s unless context indicates otherwise. If a date cannot be determined, use "unknown".
+- TIMELINE: Each timeline event MUST have a specific date. Do NOT create timeline events without dates — if there is no date for an event, omit it from the timeline.
+- TIMELINE EVENTS: Be SPECIFIC. Bad: "Patient seen". Good: "Office visit with Dr. Smith for follow-up of lumbar radiculopathy". Include the clinical purpose and relevant details.
+- TIMELINE: Use the "event" field for a concise but specific description. Include: what happened, who was involved (provider name if available), and the clinical context.
+- PAGE NUMBERS: Every item MUST have an accurate page number from the <page_X> tags. Never guess page numbers.
+- DUPLICATE EVENTS: If the same clinical event appears multiple times in these pages (e.g., referenced in a note and then again in a summary), extract it ONCE with the page where the primary documentation exists.
+- PATIENT NAMES: Extract patient_name for every timeline event. If only one patient is discussed, still include their name on each event.
+
 Response Schema (strict JSON, no markdown fences):
 {
   "document_type": "string",
@@ -29,7 +38,7 @@ Response Schema (strict JSON, no markdown fences):
   "patients": [
     {
       "patient_name": "string",
-      "date_of_birth": "string",
+      "date_of_birth": "YYYY-MM-DD or unknown",
       "facility": "string",
       "provider": "string",
       "summary": "string",
@@ -42,10 +51,10 @@ Response Schema (strict JSON, no markdown fences):
     {"flag": "string", "page": 1, "severity": "CRITICAL|HIGH|MEDIUM"}
   ],
   "abnormal_findings": [
-    {"finding": "string", "value": "string", "reference": "string", "page": 1, "severity": "HIGH|MEDIUM|LOW"}
+    {"finding": "string", "value": "string with units", "reference": "reference range", "page": 1, "severity": "HIGH|MEDIUM|LOW"}
   ],
   "timeline": [
-    {"date": "string", "event": "string", "page": 1, "category": "visit|test|procedure|other"}
+    {"date": "YYYY-MM-DD", "event": "specific clinical event description", "page": 1, "category": "visit|test|procedure|other", "patient_name": "string|null"}
   ],
   "groups": [
     {"title": "string", "items": [{"label": "string", "value": "string", "page": 1, "status": "normal|abnormal|unknown", "reference": "string"}]}
@@ -59,13 +68,19 @@ JSON objects extracted from different page ranges of the same document.
 Merge them into a single, deduplicated, coherent final report using the same
 JSON schema.
 
-Rules:
-- Merge patient records that refer to the same person (match by name + DOB).
-- Deduplicate timeline events and findings that appear in multiple partials.
-- Combine clinical_summary narratives into one cohesive paragraph.
-- Preserve ALL unique findings, flags, timeline events, and group items.
-- Keep page number references accurate.
-- Output strict JSON with NO markdown fences.
+DEDUPLICATION RULES (follow exactly):
+- TIMELINE: Two timeline events are duplicates if they have the SAME date AND describe the SAME clinical event (even if worded differently). Keep the MORE DETAILED version and use the EARLIEST page reference.
+- TIMELINE: Sort the final timeline by date (YYYY-MM-DD ascending). Remove any events with no date.
+- TIMELINE: If the same visit appears as both "Office visit" and a more detailed description, keep ONLY the detailed version.
+- PATIENTS: Match by name similarity (ignore case, handle "John Smith" = "SMITH, JOHN" = "J. Smith"). Merge their data, keeping the most complete version of each field.
+- CRITICAL_FLAGS: Two flags are duplicates if they describe the same clinical concern on the same page. Keep the higher severity version.
+- ABNORMAL_FINDINGS: Two findings are duplicates if they describe the same test/measurement with the same value. Keep the one with the reference range.
+- GROUPS: Merge groups with the same title. Within a group, deduplicate items by label+value.
+- CLINICAL_SUMMARY: Combine into one cohesive paragraph. Do not repeat the same information.
+- PAGE REFERENCES: Never change page numbers. They must remain accurate to the original source.
+- PRESERVE all unique information. When in doubt, keep both items rather than losing data.
+
+Output strict JSON with NO markdown fences.
 
 JSON Schema (same as input partials):
 {
@@ -74,7 +89,7 @@ JSON Schema (same as input partials):
   "patients": [...],
   "critical_flags": [...],
   "abnormal_findings": [...],
-  "timeline": [...],
+  "timeline": [{"date": "YYYY-MM-DD", "event": "string", "page": 1, "category": "string", "patient_name": "string|null"}],
   "groups": [...]
 }"""
 

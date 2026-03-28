@@ -15,6 +15,8 @@ export interface PdfViewerProps {
     scale: number;
     onLoadSuccess: (numPages: number) => void;
     onPageChange?: (page: number) => void;
+    targetPage?: number | null;
+    searchTerm?: string;
 }
 
 const PdfViewer = memo(function PdfViewer({
@@ -22,10 +24,13 @@ const PdfViewer = memo(function PdfViewer({
     scale,
     onLoadSuccess,
     onPageChange,
+    targetPage,
+    searchTerm,
 }: PdfViewerProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(0);
     const [numPages, setNumPages] = useState(0);
+    const [highlightedPage, setHighlightedPage] = useState<number | null>(null);
     const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
 
     // Track container width
@@ -71,6 +76,74 @@ const PdfViewer = memo(function PdfViewer({
         return () => observer.disconnect();
     }, [numPages, onPageChange]);
 
+    useEffect(() => {
+        if (!targetPage || !pageRefs.current[targetPage - 1]) return;
+        const ref = pageRefs.current[targetPage - 1];
+        if (ref) {
+            ref.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setHighlightedPage(targetPage);
+            const t = setTimeout(() => setHighlightedPage(null), 1500);
+            return () => clearTimeout(t);
+        }
+    }, [targetPage]);
+
+    // Highlight search term in text layer
+    useEffect(() => {
+        if (!containerRef.current) return;
+
+        const applyHighlights = () => {
+            if (!containerRef.current) return;
+            const textLayers = containerRef.current.querySelectorAll('.react-pdf__Page__textContent');
+            textLayers.forEach((layer) => {
+                const allSpans = layer.querySelectorAll('span');
+                allSpans.forEach((span) => {
+                    const originalText = span.getAttribute('data-original-text');
+                    if (originalText !== null) {
+                        span.textContent = originalText;
+                        span.removeAttribute('data-original-text');
+                    }
+                });
+
+                if (!searchTerm?.trim()) return;
+                const term = searchTerm.toLowerCase();
+
+                allSpans.forEach((span) => {
+                    const text = span.textContent || '';
+                    if (text.toLowerCase().includes(term)) {
+                        span.setAttribute('data-original-text', text);
+                        const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+                        const parts = text.split(regex);
+                        span.innerHTML = '';
+                        parts.forEach((part) => {
+                            if (part.toLowerCase() === term) {
+                                const mark = document.createElement('mark');
+                                mark.className = 'pdf-search-highlight';
+                                mark.textContent = part;
+                                span.appendChild(mark);
+                            } else {
+                                span.appendChild(document.createTextNode(part));
+                            }
+                        });
+                    }
+                });
+            });
+        };
+
+        applyHighlights();
+
+        // Watch for new text layer content being rendered
+        const observer = new MutationObserver(() => {
+            applyHighlights();
+        });
+
+        observer.observe(containerRef.current, {
+            childList: true,
+            subtree: true,
+        });
+
+        return () => observer.disconnect();
+    }, [searchTerm]);
+
     const handleLoadSuccess = useCallback(({ numPages: n }: { numPages: number }) => {
         setNumPages(n);
         pageRefs.current = new Array(n).fill(null);
@@ -90,6 +163,24 @@ const PdfViewer = memo(function PdfViewer({
 
     return (
         <div ref={containerRef} className="w-full h-full overflow-auto" style={{ scrollBehavior: 'smooth' }}>
+            <style>{`
+    .pdf-search-highlight {
+        background-color: rgba(253, 224, 71, 0.6);
+        border-radius: 2px;
+        padding: 0 1px;
+        color: inherit;
+    }
+    .react-pdf__Page__textContent {
+        opacity: 0.4;
+    }
+    .react-pdf__Page__textContent span {
+        color: transparent;
+    }
+    .react-pdf__Page__textContent .pdf-search-highlight {
+        color: transparent;
+        background-color: rgba(253, 224, 71, 0.5);
+    }
+`}</style>
             <Document
                 file={memoizedFile}
                 onLoadSuccess={handleLoadSuccess}
@@ -111,7 +202,7 @@ const PdfViewer = memo(function PdfViewer({
                         <div
                             key={i}
                             ref={(el) => { pageRefs.current[i] = el; }}
-                            className="relative"
+                            className={`relative ${highlightedPage === i + 1 ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-slate-100 rounded-lg' : ''}`}
                             data-page={i + 1}
                         >
                             {/* Page number badge */}
@@ -123,7 +214,7 @@ const PdfViewer = memo(function PdfViewer({
                                     pageNumber={i + 1}
                                     scale={scale}
                                     width={containerWidth > 0 ? containerWidth - 48 : undefined}
-                                    renderTextLayer={false}
+                                    renderTextLayer={true}
                                     renderAnnotationLayer={false}
                                     loading={
                                         <div className="flex items-center justify-center h-[700px] w-[500px] bg-slate-50">

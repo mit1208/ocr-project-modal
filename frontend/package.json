@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "load-icd10": "node scripts/load_icd10.js",
+    "apply-sql": "node scripts/apply_sql.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.995.0",
@@ -23,9 +25,11 @@
     "@supabase/supabase-js": "^2.97.0",
     "@xenova/transformers": "^2.17.2",
     "clsx": "^2.1.1",
+    "csv-parse": "^5.6.0",
     "dotenv": "^17.3.1",
     "framer-motion": "^12.34.3",
     "next": "16.1.6",
+    "pdf-lib": "^1.17.1",
     "pg": "^8.18.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",

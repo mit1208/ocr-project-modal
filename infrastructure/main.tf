@@ -103,6 +103,18 @@ data "archive_file" "compute_embeddings_zip" {
   output_path = "${path.module}/compute_embeddings.zip"
 }
 
+data "archive_file" "clinical_intake_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/clinical_intake"
+  output_path = "${path.module}/clinical_intake.zip"
+}
+
+data "archive_file" "index_document_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/index_document"
+  output_path = "${path.module}/index_document.zip"
+}
+
 data "archive_file" "shared_layer_zip" {
   type        = "zip"
   source_dir  = "${path.module}/layers/shared"
@@ -163,7 +175,43 @@ resource "aws_iam_role_policy" "lambda_s3_policy" {
   policy = data.aws_iam_policy_document.lambda_s3_access.json
 }
 
-# 4. Lambda Functions
+# 4. CloudWatch Log Groups
+resource "aws_cloudwatch_log_group" "pdf_split" {
+  name              = "/aws/lambda/ocr_pdf_split"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "invoke_ocr" {
+  name              = "/aws/lambda/ocr_invoke_ocr"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "analyze_document" {
+  name              = "/aws/lambda/ocr_analyze_document"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "compute_embeddings" {
+  name              = "/aws/lambda/ocr_compute_embeddings"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "clinical_intake" {
+  name              = "/aws/lambda/ocr_clinical_intake"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "index_document" {
+  name              = "/aws/lambda/ocr_index_document"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "body_map" {
+  name              = "/aws/lambda/ocr_body_map"
+  retention_in_days = 14
+}
+
+# 5. Lambda Functions
 resource "aws_lambda_function" "pdf_split" {
   filename         = data.archive_file.pdf_split_zip.output_path
   function_name    = "ocr_pdf_split"
@@ -174,6 +222,7 @@ resource "aws_lambda_function" "pdf_split" {
   memory_size      = 512
   timeout          = 30
   layers           = [aws_lambda_layer_version.ocr_vendor_layer.arn]
+  depends_on       = [aws_cloudwatch_log_group.pdf_split]
   environment {
     variables = {
       MODAL_API_URL             = var.modal_api_url
@@ -193,6 +242,7 @@ resource "aws_lambda_function" "invoke_ocr" {
   memory_size      = 2048
   timeout          = 900 # 15 minutes max
   layers           = [aws_lambda_layer_version.ocr_vendor_layer.arn]
+  depends_on       = [aws_cloudwatch_log_group.invoke_ocr]
   environment {
     variables = {
       MODAL_API_URL             = var.modal_api_url
@@ -213,6 +263,7 @@ resource "aws_lambda_function" "analyze_document" {
   memory_size      = 1024
   timeout          = 300
   layers           = [aws_lambda_layer_version.shared_layer.arn]
+  depends_on       = [aws_cloudwatch_log_group.analyze_document]
   environment {
     variables = {
       SUPABASE_URL              = var.supabase_url
@@ -232,6 +283,47 @@ resource "aws_lambda_function" "compute_embeddings" {
   memory_size      = 2048 # Embeddings can be memory intensive
   timeout          = 900
   layers           = [aws_lambda_layer_version.shared_layer.arn]
+  depends_on       = [aws_cloudwatch_log_group.compute_embeddings]
+  environment {
+    variables = {
+      SUPABASE_URL              = var.supabase_url
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+      GEMINI_API_KEY            = var.gemini_api_key
+    }
+  }
+}
+
+resource "aws_lambda_function" "clinical_intake" {
+  filename         = data.archive_file.clinical_intake_zip.output_path
+  function_name    = "ocr_clinical_intake"
+  role             = aws_iam_role.lambda_execution_role.arn
+  handler          = "lambda_function.lambda_handler"
+  source_code_hash = data.archive_file.clinical_intake_zip.output_base64sha256
+  runtime          = "python3.11"
+  memory_size      = 512
+  timeout          = 900
+  layers           = [aws_lambda_layer_version.shared_layer.arn]
+  depends_on       = [aws_cloudwatch_log_group.clinical_intake]
+  environment {
+    variables = {
+      SUPABASE_URL              = var.supabase_url
+      SUPABASE_SERVICE_ROLE_KEY = var.supabase_service_role_key
+      GEMINI_API_KEY            = var.gemini_api_key
+    }
+  }
+}
+
+resource "aws_lambda_function" "index_document" {
+  filename         = data.archive_file.index_document_zip.output_path
+  function_name    = "ocr_index_document"
+  role             = aws_iam_role.lambda_execution_role.arn
+  handler          = "lambda_function.lambda_handler"
+  source_code_hash = data.archive_file.index_document_zip.output_base64sha256
+  runtime          = "python3.11"
+  memory_size      = 1024
+  timeout          = 900
+  layers           = [aws_lambda_layer_version.shared_layer.arn]
+  depends_on       = [aws_cloudwatch_log_group.index_document]
   environment {
     variables = {
       SUPABASE_URL              = var.supabase_url
@@ -264,7 +356,9 @@ data "aws_iam_policy_document" "sfn_policy" {
       aws_lambda_function.pdf_split.arn,
       aws_lambda_function.invoke_ocr.arn,
       aws_lambda_function.analyze_document.arn,
-      aws_lambda_function.compute_embeddings.arn
+      aws_lambda_function.compute_embeddings.arn,
+      aws_lambda_function.index_document.arn,
+      aws_lambda_function.clinical_intake.arn
     ]
   }
 }
@@ -341,7 +435,21 @@ resource "aws_sfn_state_machine" "ocr_pipeline" {
           }
         }
         ResultPath = "$.mapResults"
-        Next       = "AnalyzeDocument"
+        Next       = "IndexDocument"
+      }
+      IndexDocument = {
+        Type     = "Task"
+        Resource = aws_lambda_function.index_document.arn
+        Retry = [
+          {
+            ErrorEquals     = ["States.ALL"]
+            IntervalSeconds = 5
+            MaxAttempts     = 3
+            BackoffRate     = 2.0
+          }
+        ]
+        ResultPath = "$.indexResult"
+        Next = "AnalyzeDocument"
       }
       AnalyzeDocument = {
         Type     = "Task"
@@ -360,6 +468,19 @@ resource "aws_sfn_state_machine" "ocr_pipeline" {
       ComputeEmbeddings = {
         Type     = "Task"
         Resource = aws_lambda_function.compute_embeddings.arn
+        Retry = [
+          {
+            ErrorEquals     = ["States.ALL"]
+            IntervalSeconds = 5
+            MaxAttempts     = 3
+            BackoffRate     = 2.0
+          }
+        ]
+        Next = "ClinicalIntake"
+      }
+      ClinicalIntake = {
+        Type     = "Task"
+        Resource = aws_lambda_function.clinical_intake.arn
         Retry = [
           {
             ErrorEquals     = ["States.ALL"]
@@ -444,6 +565,7 @@ resource "aws_lambda_function" "body_map" {
   memory_size      = 512
   timeout          = 60
   layers           = [aws_lambda_layer_version.shared_layer.arn]
+  depends_on       = [aws_cloudwatch_log_group.body_map]
   environment {
     variables = {
       SUPABASE_URL              = var.supabase_url

@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(NODE_PATH=frontend/node_modules node -e \":*)",
+      "Bash(curl -s http://localhost:3000/api/ai/body-map/17m5rgggmmku07v3-residential_burglary_claim.pdf)",
+      "Bash(AWS_ACCESS_KEY_ID=AKIAVOF6VIME6T2GHAMO AWS_SECRET_ACCESS_KEY=\"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\" AWS_REGION=us-east-1 make deploy)",
+      "Bash(AWS_ACCESS_KEY_ID=AKIAVOF6VIME6T2GHAMO AWS_SECRET_ACCESS_KEY=\"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\" AWS_REGION=us-east-1 aws lambda invoke --function-name ocr_clinical_intake --payload '{\"\"file_id\"\": \"\"17m5rgggmmku07v3-residential_burglary_claim.pdf\"\", \"\"user_id\"\": \"\"24720870-dc2c-4fed-8bc7-e13e4950a62d\"\"}' --cli-binary-format raw-in-base64-out /tmp/intake_output2.json)",
+      "Bash(AWS_ACCESS_KEY_ID=AKIAVOF6VIME6T2GHAMO AWS_SECRET_ACCESS_KEY=\"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\" AWS_REGION=us-east-1 aws lambda invoke --function-name ocr_clinical_intake --payload '{\"\"file_id\"\": \"\"17m5rgggmmku07v3-residential_burglary_claim.pdf\"\", \"\"user_id\"\": \"\"24720870-dc2c-4fed-8bc7-e13e4950a62d\"\"}' --cli-binary-format raw-in-base64-out /tmp/intake_output3.json)",
+      "Bash(AWS_ACCESS_KEY_ID=AKIAVOF6VIME6T2GHAMO AWS_SECRET_ACCESS_KEY=\"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\" AWS_REGION=us-east-1 aws lambda invoke --function-name ocr_index_document --payload '{\"\"file_id\"\": \"\"17m5rgggmmku07v3-residential_burglary_claim.pdf\"\", \"\"user_id\"\": \"\"24720870-dc2c-4fed-8bc7-e13e4950a62d\"\"}' --cli-binary-format raw-in-base64-out /tmp/index_output2.json)",
+      "Read(//Users/mitpatel/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.6/skills/subagent-driven-development/**)",
+      "Bash(npx tsc:*)",
+      "Bash(npx eslint:*)"
+    ]
+  }
+}
