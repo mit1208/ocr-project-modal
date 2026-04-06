@@ -1,8 +1,23 @@
 import os
-# Trigger refresh for layer optimization
 import json
+import time
 import google.generativeai as genai
 from supabase import create_client, Client
+
+
+def with_retry(fn, max_retries=3, base_delay=0.5):
+    """Retry a callable with exponential backoff for transient Gemini errors."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            msg = str(e)
+            retryable = "429" in msg or "503" in msg or "RESOURCE_EXHAUSTED" in msg or "overloaded" in msg
+            if not retryable or attempt == max_retries:
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            print(f"  [Gemini] Attempt {attempt} failed ({msg}), retrying in {delay:.1f}s...")
+            time.sleep(delay)
 
 def lambda_handler(event, context):
     print("🚀 Starting Embedding Generation Lambda...")
@@ -70,12 +85,12 @@ def lambda_handler(event, context):
             
             try:
                 # 3. Generate Embedding
-                embedding_res = genai.embed_content(
+                embedding_res = with_retry(lambda: genai.embed_content(
                     model='models/gemini-embedding-001',
                     content=chunk_content,
                     task_type="RETRIEVAL_DOCUMENT",
                     output_dimensionality=768
-                )
+                ))
                 vector = embedding_res['embedding']
                 
                 chunks_to_insert.append({

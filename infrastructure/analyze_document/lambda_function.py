@@ -1,8 +1,23 @@
 import os
 import json
-import math
+import time
 import google.generativeai as genai
 from supabase import create_client, Client
+
+
+def with_retry(fn, max_retries=3, base_delay=0.5):
+    """Retry a callable with exponential backoff for transient Gemini errors."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            msg = str(e)
+            retryable = "429" in msg or "503" in msg or "RESOURCE_EXHAUSTED" in msg or "overloaded" in msg
+            if not retryable or attempt == max_retries:
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            print(f"  [Gemini] Attempt {attempt} failed ({msg}), retrying in {delay:.1f}s...")
+            time.sleep(delay)
 
 # ─────────────────────────────────────────────────────────────
 # Constants
@@ -101,7 +116,7 @@ JSON Schema (same as input partials):
 def call_gemini(model: genai.GenerativeModel, system: str, user_content: str) -> dict:
     """Call Gemini and return a parsed JSON dict. Raises on parse failure."""
     prompt = f"{system}\n\n---\n\n{user_content}"
-    response = model.generate_content(prompt)
+    response = with_retry(lambda: model.generate_content(prompt))
     raw = response.text.replace("```json", "").replace("```", "").strip()
     return json.loads(raw)
 

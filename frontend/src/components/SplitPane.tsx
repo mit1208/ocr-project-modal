@@ -11,7 +11,7 @@ import {
 import ClinicalSummary from './ClinicalSummary';
 import PdfSearchBar from './PdfSearchBar';
 
-const PdfViewer = dynamic<any>(() => import('./PdfViewer'), { ssr: false });
+const PdfViewer = dynamic(() => import('./PdfViewer'), { ssr: false });
 
 export interface OcrResultData {
     page: number;
@@ -28,9 +28,10 @@ interface SplitPaneProps {
     isLoading?: boolean;
     statusMessage?: string;
     fileId?: string;
+    caseId?: string | null;
 }
 
-export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, statusMessage, fileId }: SplitPaneProps) {
+export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, statusMessage, fileId, caseId }: SplitPaneProps) {
     const [currentPage, setCurrentPage] = useState(1);
     const [numPages, setNumPages] = useState<number>(0);
     const [scale, setScale] = useState(1.0);
@@ -148,7 +149,7 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
             <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
 
                 {/* ═══ Left Pane: PDF Viewer ═══ */}
-                <div ref={pdfPaneRef} className="relative w-full md:w-1/2 h-1/2 md:h-full border-b flex-shrink-0 md:flex-shrink md:border-b-0 md:border-r border-slate-200 bg-slate-100 overflow-auto">
+                <div ref={pdfPaneRef} className="relative w-full md:w-1/2 min-h-[40vh] md:min-h-0 flex-1 md:flex-none md:h-full border-b md:border-b-0 md:border-r border-slate-200 bg-slate-100 overflow-auto">
                     {isSearchOpen && (
                         <PdfSearchBar
                             ocrResults={results}
@@ -184,10 +185,10 @@ export default function SplitPane({ file, fileMeta, s3Url, results, isLoading, s
                 </div>
 
                 {/* ═══ Right Pane: Clinical Summary (AI-Powered) ═══ */}
-                <div className="w-full md:w-1/2 h-1/2 md:h-full flex flex-col bg-white min-w-0 md:border-l border-slate-200">
+                <div className="w-full md:w-1/2 min-h-[40vh] md:min-h-0 flex-1 md:flex-none md:h-full flex flex-col bg-white min-w-0 md:border-l border-slate-200">
                     <div className="flex-1 min-h-0 flex flex-col">
                         {fileId ? (
-                            <ClinicalSummary fileId={fileId} rawResults={results} onNavigateToPage={handleNavigateToPage} />
+                            <ClinicalSummary fileId={fileId} caseId={caseId} rawResults={results} onNavigateToPage={handleNavigateToPage} />
                         ) : isLoading ? (
                             <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-4">
                                 <div className="relative">

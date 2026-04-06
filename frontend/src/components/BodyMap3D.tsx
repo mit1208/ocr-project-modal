@@ -10,10 +10,10 @@ import * as THREE from 'three';
 ═══════════════════════════════════════════════════════════════ */
 
 interface PatientInfo {
-    patient_name: string;
-    date_of_birth?: string;
-    chief_complaint?: string;
-    summary?: string;
+    patient_name?: string | null;
+    date_of_birth?: string | null;
+    chief_complaint?: string | null;
+    summary?: string | null;
 }
 
 interface BodyMap3DProps {
