@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 
-const BodyMap3D = dynamic<any>(() => import('./BodyMap3D'), { ssr: false });
-const IntakeSheet = dynamic<any>(() => import('./IntakeSheet'), { ssr: false });
+const BodyMap3D = dynamic(() => import('./BodyMap3D'), { ssr: false });
+const IntakeSheet = dynamic(() => import('./IntakeSheet'), { ssr: false });
+const ConsultationAssistant = dynamic(() => import('./ConsultationAssistant'), { ssr: false });
+const IMESummaryBuilder = dynamic(() => import('./IMESummaryBuilder'), { ssr: false });
 import {
     ExclamationTriangleIcon,
     BeakerIcon,
@@ -209,11 +211,12 @@ type IntakeData = {
 
 interface ClinicalSummaryProps {
     fileId: string;
+    caseId?: string | null;
     rawResults?: { page: number; text: string }[] | null;
     onNavigateToPage?: (page: number) => void;
 }
 
-type TabId = 'summary' | 'alerts' | 'timeline' | 'chronology' | 'issues' | 'details' | 'intake' | 'bodymap';
+type TabId = 'summary' | 'alerts' | 'timeline' | 'chronology' | 'issues' | 'details' | 'consultation' | 'ime' | 'intake' | 'bodymap';
 
 /* ─── Category Styles ─── */
 
@@ -343,7 +346,7 @@ function summarizeText(value: string | null | undefined, max = 120): string {
     return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-export default function ClinicalSummary({ fileId, rawResults, onNavigateToPage }: ClinicalSummaryProps) {
+export default function ClinicalSummary({ fileId, caseId, rawResults, onNavigateToPage }: ClinicalSummaryProps) {
     const [summaryData, setSummaryData] = useState<SummaryData | null>(null);
     const [flagsData, setFlagsData] = useState<FlagsData | null>(null);
     const [detailsData, setDetailsData] = useState<DetailsData | null>(null);
@@ -577,26 +580,31 @@ export default function ClinicalSummary({ fileId, rawResults, onNavigateToPage }
     const hasIssues = chronologyData?.issues && chronologyData.issues.length > 0;
     const hasGroups = (detailsData?.groups && detailsData.groups.length > 0) || (detailsData?.patients && detailsData.patients.length > 0);
 
-    const patientOptions = (() => {
+    const patientOptions = useMemo(() => {
         const names = new Set<string>();
         summaryData?.patients?.forEach(p => { if (p.patient_name) names.add(p.patient_name); });
         chronologyEdits.forEach(ev => { if (ev.patient_name) names.add(ev.patient_name); });
         return ['All', ...Array.from(names)];
-    })();
-    const assignablePatients = patientOptions.filter(p => p !== 'All');
+    }, [summaryData?.patients, chronologyEdits]);
+    const assignablePatients = useMemo(() => patientOptions.filter(p => p !== 'All'), [patientOptions]);
 
-    const sourceChronology = (isChronologyInitialized ? chronologyEdits : chronologyData?.chronology) || [];
-    const sortedChronology = [...sourceChronology].sort((a, b) => {
-        const da = parseDateString(a.date);
-        const db = parseDateString(b.date);
-        if (!da && !db) return 0;
-        if (!da) return 1;
-        if (!db) return -1;
-        return da.getTime() - db.getTime();
-    });
-    const displayedChronology = selectedPatient === 'All'
-        ? sortedChronology
-        : sortedChronology.filter(ev => ev.patient_name === selectedPatient);
+    const sortedChronology = useMemo(() => {
+        const sourceChronology = (isChronologyInitialized ? chronologyEdits : chronologyData?.chronology) || [];
+        return [...sourceChronology].sort((a, b) => {
+            const da = parseDateString(a.date);
+            const db = parseDateString(b.date);
+            if (!da && !db) return 0;
+            if (!da) return 1;
+            if (!db) return -1;
+            return da.getTime() - db.getTime();
+        });
+    }, [isChronologyInitialized, chronologyEdits, chronologyData?.chronology]);
+    const displayedChronology = useMemo(() =>
+        selectedPatient === 'All'
+            ? sortedChronology
+            : sortedChronology.filter(ev => ev.patient_name === selectedPatient),
+        [sortedChronology, selectedPatient]
+    );
 
     const TABS: { id: TabId; label: string; icon: string; badge?: number; loading: boolean }[] = [
         { id: 'summary', label: 'Overview', icon: '📝', loading: summaryLoading },
@@ -605,6 +613,8 @@ export default function ClinicalSummary({ fileId, rawResults, onNavigateToPage }
         { id: 'chronology', label: 'Chronology', icon: '🧾', badge: chronologyData?.chronology?.length, loading: chronologyLoading },
         { id: 'issues', label: 'Issues', icon: '🔎', badge: chronologyData?.issues?.length, loading: chronologyLoading },
         { id: 'details', label: 'Details', icon: '📋', badge: detailsData?.patients?.length || detailsData?.groups?.length, loading: detailsLoading },
+        { id: 'consultation', label: 'Consult', icon: '🎙️', loading: false },
+        { id: 'ime', label: 'IME', icon: '📄', loading: false },
         { id: 'intake', label: 'Intake', icon: '🧩', badge: intakeData?.clinical_intake?.problem_list?.length, loading: intakeLoading },
         { id: 'bodymap', label: 'Body Map', icon: '🫀', loading: false },
     ];
@@ -1932,6 +1942,28 @@ export default function ClinicalSummary({ fileId, rawResults, onNavigateToPage }
                                 onOpenCodeSearch={openCodeSearch}
                             />
                         </div>
+                    )}
+
+                    {/* ── CONSULTATION TAB ── */}
+                    {activeTab === 'consultation' && (
+                        caseId ? (
+                            <ConsultationAssistant caseId={caseId} />
+                        ) : (
+                            <div className="p-5">
+                                <EmptyState icon={<DocumentTextIcon className="w-10 h-10 text-slate-200" />} text="Consultation assistant becomes available once this document is tied to a case." />
+                            </div>
+                        )
+                    )}
+
+                    {/* ── IME TAB ── */}
+                    {activeTab === 'ime' && (
+                        caseId ? (
+                            <IMESummaryBuilder caseId={caseId} />
+                        ) : (
+                            <div className="p-5">
+                                <EmptyState icon={<DocumentTextIcon className="w-10 h-10 text-slate-200" />} text="IME builder becomes available once this document is tied to a case." />
+                            </div>
+                        )
                     )}
 
                     {/* ── BODY MAP TAB ── */}

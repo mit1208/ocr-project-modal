@@ -1,19 +1,36 @@
 import os
 import json
+import time
 import traceback
 import google.generativeai as genai
 from supabase import create_client, Client
 
-# Environment configuration
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-# Initialize Gemini and Supabase optionally outside for reuse
-genai.configure(api_key=GEMINI_API_KEY)
-# We use gemini-1.5-pro or flash depending on preference. Using flash-lite is faster if available.
 GEMINI_MODEL = "gemini-2.5-flash-lite"
-model = genai.GenerativeModel(GEMINI_MODEL)
+
+# Lazy-initialized module-level cache
+_model = None
+
+
+def _get_model():
+    global _model
+    if _model is None:
+        genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+        _model = genai.GenerativeModel(GEMINI_MODEL)
+    return _model
+
+
+def with_retry(fn, max_retries=3, base_delay=0.5):
+    for attempt in range(1, max_retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            msg = str(e)
+            retryable = "429" in msg or "503" in msg or "RESOURCE_EXHAUSTED" in msg or "overloaded" in msg
+            if not retryable or attempt == max_retries:
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            print(f"  [Gemini] Attempt {attempt} failed ({msg}), retrying in {delay:.1f}s...")
+            time.sleep(delay)
 
 def build_cors_response(status_code: int, body: dict):
     return {
@@ -42,6 +59,9 @@ def lambda_handler(event, context):
         return build_cors_response(400, {"error": "Missing file_id path parameter"})
 
     try:
+        SUPABASE_URL = os.environ["SUPABASE_URL"]
+        SUPABASE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+        model = _get_model()
         supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
         
         # 1. Fetch data from Supabase ai_analysis table
@@ -249,7 +269,7 @@ Now analyze the following patient information and return the JSON body map:
 
 Return ONLY the JSON object, no markdown formatting."""
 
-            body_result = model.generate_content(body_map_prompt)
+            body_result = with_retry(lambda: model.generate_content(body_map_prompt))
             body_text = body_result.text.replace('```json', '').replace('```', '').strip()
             
             try:

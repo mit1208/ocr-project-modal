@@ -17,6 +17,21 @@ type OcrResult = {
 
 
 
+function AtmosphericBackground() {
+  return (
+    <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+      <div className="absolute left-[-5%] top-[-5%] w-[600px] h-[600px] bg-blue-600/40 rounded-full blur-[160px] animate-pulse" />
+      <div className="absolute right-[-5%] top-[5%] w-[500px] h-[500px] bg-indigo-600/35 rounded-full blur-[140px] animate-[pulse_8s_infinite]" />
+      <div className="absolute left-[20%] top-[40%] w-[400px] h-[400px] bg-blue-500/30 rounded-full blur-[130px] animate-[pulse_12s_infinite]" />
+      <div className="absolute right-[15%] top-[60%] w-[500px] h-[500px] bg-blue-400/25 rounded-full blur-[150px] animate-pulse" />
+      <div className="absolute left-[-10%] bottom-[-5%] w-[700px] h-[700px] bg-blue-700/30 rounded-full blur-[180px] animate-pulse" />
+      <div className="absolute right-[-10%] bottom-[-10%] w-[600px] h-[600px] bg-indigo-700/30 rounded-full blur-[160px] animate-[pulse_7s_infinite]" />
+      <div className="absolute inset-0 opacity-[0.12] mix-blend-overlay"
+        style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '40px 40px' }} />
+    </div>
+  );
+}
+
 // We export HomeContent so the dynamic route can reuse this entire component without copying/pasting 300 lines
 export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchParams }) {
   const router = useRouter();
@@ -118,23 +133,33 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
 
   const toggleDocumentVisibility = async (doc: any, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    setIsLoadingDocs(true);
+    const newPublic = !doc.is_public;
+
+    // Optimistic update — immediately reflect in UI
+    setUserDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, is_public: newPublic } : d));
+    setPublicDocuments(prev =>
+      newPublic
+        ? [...prev, { ...doc, is_public: true }]
+        : prev.filter(d => d.id !== doc.id)
+    );
+
     try {
       const { error } = await supabase
         .from('documents')
-        .update({ is_public: !doc.is_public })
+        .update({ is_public: newPublic })
         .eq('id', doc.id);
 
       if (error) throw error;
-
-      // Refresh both lists to ensure consistency
-      if (session?.user?.id) await fetchUserDocuments(session.user.id);
-      await fetchPublicDocuments();
     } catch (err: any) {
       console.error('Error toggling visibility:', err.message);
+      // Revert on failure
+      setUserDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, is_public: !newPublic } : d));
+      setPublicDocuments(prev =>
+        !newPublic
+          ? [...prev, { ...doc, is_public: true }]
+          : prev.filter(d => d.id !== doc.id)
+      );
       setError('Failed to update document visibility');
-    } finally {
-      setIsLoadingDocs(false);
     }
   };
 
@@ -339,6 +364,12 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
   const displayFileName = ocrResults?.filename || file?.name || 'Document';
   const displayPageCount = ocrResults?.results?.length || 0;
 
+  // Memoize the current document lookup to avoid repeated .find() scans on every render
+  const currentDoc = useMemo(
+    () => fileIdFromUrl ? userDocuments.find(d => d.file_id === fileIdFromUrl) : undefined,
+    [userDocuments, fileIdFromUrl]
+  );
+
   if (session === undefined) {
     return (
       <div className="min-h-[100dvh] bg-black flex items-center justify-center">
@@ -350,24 +381,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
   if (!session && !fileIdFromUrl) {
     return (
       <main className="min-h-[100dvh] bg-zinc-950 text-[#FFFFFF] selection:bg-blue-100 selection:text-blue-600 overflow-x-hidden relative">
-        {/* Global Atmospheric Pulsars */}
-        <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-          {/* Top Primary Pulsar */}
-          <div className="absolute left-[-5%] top-[-5%] w-[600px] h-[600px] bg-blue-600/40 rounded-full blur-[160px] animate-pulse"></div>
-          <div className="absolute right-[-5%] top-[5%] w-[500px] h-[500px] bg-indigo-600/35 rounded-full blur-[140px] animate-[pulse_8s_infinite]"></div>
-
-          {/* Middle Accent Pulsars */}
-          <div className="absolute left-[20%] top-[40%] w-[400px] h-[400px] bg-blue-500/30 rounded-full blur-[130px] animate-[pulse_12s_infinite]"></div>
-          <div className="absolute right-[15%] top-[60%] w-[500px] h-[500px] bg-blue-400/25 rounded-full blur-[150px] animate-pulse"></div>
-
-          {/* Bottom Anchor Pulsars */}
-          <div className="absolute left-[-10%] bottom-[-5%] w-[700px] h-[700px] bg-blue-700/30 rounded-full blur-[180px] animate-pulse"></div>
-          <div className="absolute right-[-10%] bottom-[-10%] w-[600px] h-[600px] bg-indigo-700/30 rounded-full blur-[160px] animate-[pulse_7s_infinite]"></div>
-
-          {/* Decorative Data Grid Overlay */}
-          <div className="absolute inset-0 opacity-[0.12] mix-blend-overlay"
-            style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '40px 40px' }}></div>
-        </div>
+        <AtmosphericBackground />
 
         {/* Premium Navigation (Ethereal Glass) */}
         <nav className={`fixed top-0 w-full z-50 px-6 md:px-16 transition-all duration-700 ${isScrolled
@@ -651,24 +665,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
 
   return (
     <main className={showSplitPane ? "h-[100dvh] flex flex-col bg-zinc-950 overflow-hidden relative" : "min-h-[100dvh] bg-zinc-950 font-sans relative"}>
-      {/* Global Atmospheric Pulsars */}
-      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        {/* Top Primary Pulsar */}
-        <div className="absolute left-[-5%] top-[-5%] w-[600px] h-[600px] bg-blue-600/40 rounded-full blur-[160px] animate-pulse"></div>
-        <div className="absolute right-[-5%] top-[5%] w-[500px] h-[500px] bg-indigo-600/35 rounded-full blur-[140px] animate-[pulse_8s_infinite]"></div>
-
-        {/* Middle Accent Pulsars */}
-        <div className="absolute left-[20%] top-[40%] w-[400px] h-[400px] bg-blue-500/30 rounded-full blur-[130px] animate-[pulse_12s_infinite]"></div>
-        <div className="absolute right-[15%] top-[60%] w-[500px] h-[500px] bg-blue-400/25 rounded-full blur-[150px] animate-pulse"></div>
-
-        {/* Bottom Anchor Pulsars */}
-        <div className="absolute left-[-10%] bottom-[-5%] w-[700px] h-[700px] bg-blue-700/30 rounded-full blur-[180px] animate-pulse"></div>
-        <div className="absolute right-[-10%] bottom-[-10%] w-[600px] h-[600px] bg-indigo-700/30 rounded-full blur-[160px] animate-[pulse_7s_infinite]"></div>
-
-        {/* Decorative Data Grid Overlay */}
-        <div className="absolute inset-0 opacity-[0.12] mix-blend-overlay"
-          style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '40px 40px' }}></div>
-      </div>
+      <AtmosphericBackground />
       {/* Dynamic Header */}
       {!showSplitPane && (
         <nav className={`sticky top-0 z-50 px-6 md:px-16 transition-all duration-700 ${isScrolled
@@ -766,17 +763,17 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
 
             <div className="flex items-center space-x-3">
               {/* Visibility Toggle in Header */}
-              {userDocuments.find(d => d.file_id === fileIdFromUrl) && (
+              {currentDoc && (
                 <button
-                  onClick={(e) => toggleDocumentVisibility(userDocuments.find(d => d.file_id === fileIdFromUrl), e)}
+                  onClick={(e) => toggleDocumentVisibility(currentDoc, e)}
                   disabled={isLoadingDocs}
-                  className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg border transition-all text-[10px] font-black uppercase tracking-widest ${userDocuments.find(d => d.file_id === fileIdFromUrl)?.is_public
+                  className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg border transition-all text-[10px] font-black uppercase tracking-widest ${currentDoc.is_public
                     ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'
                     : 'border-white/10 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
                     }`}
-                  title={userDocuments.find(d => d.file_id === fileIdFromUrl)?.is_public ? "Make Private" : "Make Public"}
+                  title={currentDoc.is_public ? "Make Private" : "Make Public"}
                 >
-                  {userDocuments.find(d => d.file_id === fileIdFromUrl)?.is_public ? (
+                  {currentDoc.is_public ? (
                     <>
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg>
                       <span>Public</span>
@@ -933,11 +930,13 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
                         </div>
 
                         <div className="mt-6 flex items-center justify-between relative z-10">
-                          <div>
-                            <p className="text-[10px] font-mono text-white/80 truncate max-w-[120px]">{doc.case_id.substring(0, 16).toUpperCase()}</p>
+                          <div className="flex items-center space-x-2">
+                            <span className="text-[9px] font-mono text-white/30 bg-white/5 px-2 py-0.5 rounded">{doc.case_id.substring(0, 8).toUpperCase()}</span>
                           </div>
                           <div className="text-right">
-                            <p className="text-[11px] text-white/60 font-bold uppercase tracking-widest">{new Date(doc.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                            <p className="text-[11px] text-white/60 font-bold uppercase tracking-widest">
+                              {new Date(doc.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </p>
                             <span className="mt-1 text-[11px] font-bold text-blue-400 uppercase group-hover:text-white transition-colors tracking-wide">ANALYZE RECORD →</span>
                           </div>
                         </div>
@@ -986,6 +985,7 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
               isLoading={isLoading && !ocrResults}
               statusMessage={statusMessage}
               fileId={fileIdFromUrl || undefined}
+              caseId={caseIdFromUrl}
             />
             <VoiceQA fileId={fileIdFromUrl || ''} />
           </div>

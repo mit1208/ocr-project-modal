@@ -48,6 +48,44 @@ type CaseSettings = {
 
 const DEFAULT_GAP_DAYS = 30;
 
+/* ─── GEMINI RETRY HELPER ─── */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, baseDelayMs = 500): Promise<T> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            return await fn();
+        } catch (err: any) {
+            const isRetryable = err?.status === 429 || err?.status === 503 || err?.message?.includes('RESOURCE_EXHAUSTED') || err?.message?.includes('overloaded');
+            if (!isRetryable || attempt === maxRetries) throw err;
+            const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 200;
+            console.warn(`[Gemini] Attempt ${attempt} failed (${err.message}), retrying in ${Math.round(delay)}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+        }
+    }
+    throw new Error('Unreachable');
+}
+
+/* ─── WAV HEADER HELPER ─── */
+function wrapPcmInWav(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bitsPerSample = 16): Buffer {
+    const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+    const blockAlign = numChannels * (bitsPerSample / 8);
+    const dataSize = pcmBuffer.length;
+    const header = Buffer.alloc(44);
+    header.write('RIFF', 0);
+    header.writeUInt32LE(36 + dataSize, 4);
+    header.write('WAVE', 8);
+    header.write('fmt ', 12);
+    header.writeUInt32LE(16, 16);
+    header.writeUInt16LE(1, 20);
+    header.writeUInt16LE(numChannels, 22);
+    header.writeUInt32LE(sampleRate, 24);
+    header.writeUInt32LE(byteRate, 28);
+    header.writeUInt16LE(blockAlign, 32);
+    header.writeUInt16LE(bitsPerSample, 34);
+    header.write('data', 36);
+    header.writeUInt32LE(dataSize, 40);
+    return Buffer.concat([header, pcmBuffer]);
+}
+
 function parseDateString(value: string | null | undefined): Date | null {
     if (!value) return null;
     const trimmed = value.trim();
@@ -387,11 +425,11 @@ async function processLargeDocument(fullText: string) {
           "critical_flags": [{ "flag": "string", "page": 1, "severity": "CRITICAL|HIGH|MEDIUM" }],
           "abnormal_findings": [{ "finding": "string", "value": "string", "reference": "string", "page": 1, "severity": "HIGH|MEDIUM|LOW" }]
         }
-        
+
         Text Segment:
         ${chunk}`;
 
-        const result = await model.generateContent(prompt);
+        const result = await withRetry(() => model.generateContent(prompt));
         return result.response.text();
     }));
 
@@ -417,7 +455,7 @@ async function analyzeBatch(textContext: string) {
     }`;
 
     const prompt = `${systemPrompt}\n\nText:\n${textContext}`;
-    const result = await model.generateContent(prompt);
+    const result = await withRetry(() => model.generateContent(prompt));
     const responseText = result.response.text();
     const cleanedJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
     return JSON.parse(cleanedJson);
@@ -546,7 +584,7 @@ function safeJsonParse(raw: string) {
 }
 
 async function callGeminiJson(prompt: string) {
-    const result = await model.generateContent(prompt);
+    const result = await withRetry(() => model.generateContent(prompt));
     return safeJsonParse(result.response.text());
 }
 
@@ -600,34 +638,57 @@ function assignIds(items: any[], prefix: string) {
     return items.map((item, idx) => ({ id: `${prefix}_${String(idx + 1).padStart(3, '0')}`, ...item }));
 }
 
-async function validateIcd10(code: string | null | undefined, description: string) {
-    if (!code) return { validated: false, icd10_description: null, hcc_relevant: false, hcc_category: null, alternatives: [] };
-    const { data } = await supabase
+async function batchValidateIcd10(diagnoses: any[]) {
+    const codes = diagnoses.map(dx => dx.icd10_code).filter(Boolean);
+    if (codes.length === 0) return new Map<string, any>();
+
+    const { data: found } = await supabase
         .from('icd10_codes')
         .select('code, description, is_hcc, hcc_category')
-        .eq('code', code)
-        .maybeSingle();
-    if (data) {
-        return {
-            validated: true,
-            icd10_description: data.description,
-            hcc_relevant: !!data.is_hcc,
-            hcc_category: data.hcc_category,
-            alternatives: [],
-        };
+        .in('code', codes);
+
+    const foundMap = new Map((found || []).map(r => [r.code, r]));
+    const results = new Map<string, any>();
+
+    const failedDiagnoses: any[] = [];
+    for (const dx of diagnoses) {
+        const code = dx.icd10_code;
+        if (!code) {
+            results.set(dx.id, { validated: false, icd10_description: null, hcc_relevant: false, hcc_category: null, alternatives: [] });
+            continue;
+        }
+        const match = foundMap.get(code);
+        if (match) {
+            results.set(dx.id, {
+                validated: true,
+                icd10_description: match.description,
+                hcc_relevant: !!match.is_hcc,
+                hcc_category: match.hcc_category,
+                alternatives: [],
+            });
+        } else {
+            failedDiagnoses.push(dx);
+            results.set(dx.id, { validated: false, icd10_description: null, hcc_relevant: false, hcc_category: null, alternatives: [] });
+        }
     }
-    const { data: alts } = await supabase
-        .from('icd10_codes')
-        .select('code, description')
-        .ilike('description', `%${description.slice(0, 80)}%`)
-        .limit(5);
-    return {
-        validated: false,
-        icd10_description: null,
-        hcc_relevant: false,
-        hcc_category: null,
-        alternatives: (alts || []).map(a => ({ code: a.code, description: a.description, reason: 'Similar description' })),
-    };
+
+    // Batch fetch alternatives for failed codes
+    for (const dx of failedDiagnoses) {
+        const description = dx.text || '';
+        const searchTerm = description.slice(0, 40);
+        if (!searchTerm) continue;
+        const { data: alts } = await supabase
+            .from('icd10_codes')
+            .select('code, description')
+            .ilike('description', `%${searchTerm}%`)
+            .limit(5);
+        const entry = results.get(dx.id);
+        if (entry) {
+            entry.alternatives = (alts || []).map(a => ({ code: a.code, description: a.description, reason: 'Similar description' }));
+        }
+    }
+
+    return results;
 }
 
 async function generateClinicalIntake(fileId: string, ocrPages: { page: number; text: string }[]) {
@@ -667,7 +728,12 @@ async function generateClinicalIntake(fileId: string, ocrPages: { page: number; 
         dx.confidence = mapped.confidence || null;
         dx.specificity_note = mapped.specificity_note || null;
         dx.alternatives = mapped.alternatives || [];
-        const validation = await validateIcd10(dx.icd10_code, dx.text || '');
+    }
+
+    const validationResults = await batchValidateIcd10(diagnoses);
+    for (const dx of diagnoses) {
+        const validation = validationResults.get(dx.id);
+        if (!validation) continue;
         dx.validated = validation.validated;
         dx.icd10_description = validation.icd10_description || dx.icd10_description;
         dx.hcc_relevant = validation.hcc_relevant || false;
@@ -1155,7 +1221,7 @@ Return a JSON object with body region keys, each containing an array of finding 
 
 Return ONLY the JSON object, no markdown formatting.`;
 
-                    const bodyResult = await model.generateContent(bodyMapPrompt);
+                    const bodyResult = await withRetry(() => model.generateContent(bodyMapPrompt));
                     const bodyText = bodyResult.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
                     const regionMapping: Record<string, number[]> = JSON.parse(bodyText);
 
@@ -1467,7 +1533,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
             });
 
             // 3. Generate Text Answer first
-            const textResult = await model.generateContent({
+            const textResult = await withRetry(() => model.generateContent({
                 contents: [{
                     role: 'user',
                     parts: [{
@@ -1481,7 +1547,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
                         User Question: ${question}`
                     }]
                 }]
-            });
+            }));
             const answer = textResult.response.text();
 
             // 4. Transform Text to Audio (Resilient Wrap)
@@ -1489,7 +1555,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
             let mimeType = 'audio/wav';
             try {
                 console.log(`[Ask AI] Attempting Speaking via Gemini TTS Service (Puck)...`);
-                const aiResult = await audioModel.generateContent({
+                const aiResult = await withRetry(() => audioModel.generateContent({
                     contents: [{
                         role: 'user',
                         parts: [{
@@ -1501,12 +1567,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
                         speechConfig: {
                             voiceConfig: {
                                 prebuiltVoiceConfig: {
-                                    voiceName: "Puck", // Kore is usually preferred, but using Puck as per current config
+                                    voiceName: "Puck",
                                 }
                             }
                         }
                     }
-                } as any);
+                } as any));
 
                 // Extract and wrap audio
                 const parts = aiResult.response.candidates?.[0]?.content?.parts;
@@ -1514,31 +1580,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
                     const audioPart = parts.find((p: any) => p.inlineData?.data);
                     if (audioPart?.inlineData?.data) {
                         const pcmBuffer = Buffer.from(audioPart.inlineData.data, "base64");
-
-                        const sampleRate = 24000;
-                        const numChannels = 1;
-                        const bitsPerSample = 16;
-                        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-                        const blockAlign = numChannels * (bitsPerSample / 8);
-                        const dataSize = pcmBuffer.length;
-
-                        const wavHeader = Buffer.alloc(44);
-                        wavHeader.write('RIFF', 0);
-                        wavHeader.writeUInt32LE(36 + dataSize, 4);
-                        wavHeader.write('WAVE', 8);
-                        wavHeader.write('fmt ', 12);
-                        wavHeader.writeUInt32LE(16, 16);
-                        wavHeader.writeUInt16LE(1, 20); // PCM
-                        wavHeader.writeUInt16LE(numChannels, 22);
-                        wavHeader.writeUInt32LE(sampleRate, 24);
-                        wavHeader.writeUInt32LE(byteRate, 28);
-                        wavHeader.writeUInt16LE(blockAlign, 32);
-                        wavHeader.writeUInt16LE(bitsPerSample, 34);
-                        wavHeader.write('data', 36);
-                        wavHeader.writeUInt32LE(dataSize, 40);
-
-                        const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
-                        audioBase64 = wavBuffer.toString('base64');
+                        audioBase64 = wrapPcmInWav(pcmBuffer).toString('base64');
                     }
                 }
             } catch (audioErr: any) {
@@ -1571,7 +1613,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
 
             console.log(`[Audio] Generating native audio stream via Gemini TTS Service (Puck) for text (${textToSpeak.length} chars)...`);
 
-            const result = await audioModel.generateContentStream({
+            const result = await withRetry(() => audioModel.generateContentStream({
                 contents: [{
                     role: 'user',
                     parts: [{ text: textToSpeak }]
@@ -1586,7 +1628,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
                         },
                     },
                 }
-            } as any);
+            } as any));
 
             const audioChunks: Buffer[] = [];
             for await (const chunk of result.stream) {
@@ -1606,42 +1648,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ pat
             }
 
             const pcmBuffer = Buffer.concat(audioChunks);
-            let audioBase64 = pcmBuffer.toString('base64');
-            let mimeType = 'audio/L16;rate=24000'; // Default for Kore PCM
-
-            // The model returns raw PCM (L16). We need to wrap it in a WAV header for browser playback.
-            if (mimeType.includes('pcm') || mimeType.includes('L16')) {
-                console.log("[Audio] Converting raw PCM to WAV container...");
-                const wavHeader = Buffer.alloc(44);
-
-                const sampleRate = 24000;
-                const numChannels = 1;
-                const bitsPerSample = 16;
-                const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-                const blockAlign = numChannels * (bitsPerSample / 8);
-                const dataSize = pcmBuffer.length;
-
-                // RIFF header
-                wavHeader.write('RIFF', 0);
-                wavHeader.writeUInt32LE(36 + dataSize, 4);
-                wavHeader.write('WAVE', 8);
-                // fmt subchunk
-                wavHeader.write('fmt ', 12);
-                wavHeader.writeUInt32LE(16, 16);
-                wavHeader.writeUInt16LE(1, 20); // PCM
-                wavHeader.writeUInt16LE(numChannels, 22);
-                wavHeader.writeUInt32LE(sampleRate, 24);
-                wavHeader.writeUInt32LE(byteRate, 28);
-                wavHeader.writeUInt16LE(blockAlign, 32);
-                wavHeader.writeUInt16LE(bitsPerSample, 34);
-                // data subchunk
-                wavHeader.write('data', 36);
-                wavHeader.writeUInt32LE(dataSize, 40);
-
-                const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
-                audioBase64 = wavBuffer.toString('base64');
-                mimeType = 'audio/wav';
-            }
+            const wavBuffer = wrapPcmInWav(pcmBuffer);
+            const audioBase64 = wavBuffer.toString('base64');
+            const mimeType = 'audio/wav';
 
             console.log(`[Audio] Successfully generated and converted ${audioBase64.length} bytes of audio (${mimeType})`);
             return NextResponse.json({ audio: audioBase64, mimeType });

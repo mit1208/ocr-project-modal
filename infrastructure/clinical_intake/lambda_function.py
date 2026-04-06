@@ -1,7 +1,24 @@
 import os
 import json
+import time
+import traceback
 import google.generativeai as genai
 from supabase import create_client, Client
+
+
+def with_retry(fn, max_retries=3, base_delay=0.5):
+    """Retry a callable with exponential backoff for transient Gemini errors."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            msg = str(e)
+            retryable = "429" in msg or "503" in msg or "RESOURCE_EXHAUSTED" in msg or "overloaded" in msg
+            if not retryable or attempt == max_retries:
+                raise
+            delay = base_delay * (2 ** (attempt - 1)) + (time.time() % 1) * 0.2
+            print(f"  [Gemini] Attempt {attempt} failed ({msg}), retrying in {delay:.1f}s...")
+            time.sleep(delay)
 
 PAGES_PER_CHUNK = 10
 MAX_CHARS_PER_CHUNK = 80_000
@@ -172,7 +189,7 @@ Return strict JSON (no markdown fences):
 
 def call_gemini_json(model: genai.GenerativeModel, system: str, user_content: str) -> dict:
     prompt = f"{system}\n\n---\n\n{user_content}"
-    response = model.generate_content(prompt)
+    response = with_retry(lambda: model.generate_content(prompt))
     raw = response.text.replace("```json", "").replace("```", "").strip()
     try:
         return json.loads(raw)
@@ -674,7 +691,6 @@ def lambda_handler(event, context):
 
     except Exception as e:
         print(f"Error in clinical intake: {str(e)}")
-        import traceback
         traceback.print_exc()
         if not isinstance(intake_passes, dict):
             intake_passes = {}
