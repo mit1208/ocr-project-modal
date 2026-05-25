@@ -7,7 +7,6 @@ import SplitPane from '@/components/SplitPane';
 import { supabase } from '@/lib/supabase';
 import VoiceQA from '@/components/VoiceAssistant';
 import HeartbeatSignIn from '@/components/HeartbeatSignIn';
-import SlmWorkspace from '@/components/SlmWorkspace';
 import FeatureBanner from '@/components/FeatureBanner';
 type OcrResult = {
   filename: string;
@@ -841,13 +840,6 @@ export function HomeContent({ simulatedParams }: { simulatedParams?: URLSearchPa
                   </div>
                 </div>
                 <FileUpload onFileSelect={handleFileUpload} isLoading={isLoading} />
-              </section>
-
-              <section className="space-y-8">
-                <SlmWorkspace
-                  accessToken={session?.access_token || ''}
-                  hasDocuments={userDocuments.length > 0}
-                />
               </section>
 
               <section className="space-y-10 pt-8">

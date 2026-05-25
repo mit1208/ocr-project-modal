@@ -20,6 +20,7 @@ import { IME_SECTION_OPTIONS } from '@/lib/ime-types';
 
 type IMESummaryBuilderProps = {
   caseId: string;
+  onNavigateToPage?: (page: number) => void;
 };
 
 type ImeApiPayload = {
@@ -43,7 +44,50 @@ type ImeApiPayload = {
   };
 };
 
-export default function IMESummaryBuilder({ caseId }: IMESummaryBuilderProps) {
+function renderContentWithPageLinks(
+  content: string,
+  onNavigateToPage?: (page: number) => void,
+) {
+  if (!onNavigateToPage || !content) return content;
+
+  // Match patterns like (p. 3), (p.3), (page 3), (pages 3, 5), (pp. 3-5)
+  const parts = content.split(/(\(p(?:ages?|p)?\.?\s*[\d,\s–-]+\))/gi);
+  if (parts.length === 1) return content;
+
+  return parts.map((part, i) => {
+    const match = part.match(/\(p(?:ages?|p)?\.?\s*([\d,\s–-]+)\)/i);
+    if (!match) return part;
+
+    const pageNums = match[1]
+      .split(/[,\s–-]+/)
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+
+    if (pageNums.length === 0) return part;
+
+    return (
+      <span key={i}>
+        {'('}
+        {pageNums.map((page, j) => (
+          <span key={j}>
+            {j > 0 && ', '}
+            <button
+              type="button"
+              onClick={() => onNavigateToPage(page)}
+              className="text-blue-600 hover:text-blue-800 underline underline-offset-2 font-semibold cursor-pointer"
+              title={`Go to page ${page}`}
+            >
+              p. {page}
+            </button>
+          </span>
+        ))}
+        {')'}
+      </span>
+    );
+  });
+}
+
+export default function IMESummaryBuilder({ caseId, onNavigateToPage }: IMESummaryBuilderProps) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
@@ -453,6 +497,33 @@ export default function IMESummaryBuilder({ caseId }: IMESummaryBuilderProps) {
               placeholder="Generate this section to draft content here."
               className="mt-4 w-full rounded-3xl border border-slate-200 px-4 py-4 text-sm leading-relaxed text-slate-700 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
             />
+
+            {/* Source page links */}
+            {activeSection?.sourcePages && activeSection.sourcePages.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Source Pages:</span>
+                {activeSection.sourcePages.map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => onNavigateToPage?.(page)}
+                    className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 transition hover:bg-blue-100 hover:border-blue-300"
+                  >
+                    p. {page}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Rendered preview with clickable page links */}
+            {activeSection?.content && onNavigateToPage && (
+              <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Preview with page links</div>
+                <div className="text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+                  {renderContentWithPageLinks(activeSection.content, onNavigateToPage)}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">

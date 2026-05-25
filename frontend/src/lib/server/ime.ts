@@ -42,6 +42,7 @@ export type ImeSectionRecord = {
   label: string;
   status: ImeSectionStatus;
   content: string;
+  sourcePages?: number[];
   lastInstruction?: string | null;
   updatedAt?: string | null;
 };
@@ -473,6 +474,7 @@ export function normalizeImeSections(raw: unknown): ImeSectionRecord[] {
       label: asString(row.label) || IME_SECTION_DEFINITIONS.find((section) => section.type === type)?.label || type,
       status: (asString(row.status) as ImeSectionStatus) || 'pending',
       content: asString(row.content),
+      sourcePages: Array.isArray(row.sourcePages) ? row.sourcePages.filter((p: unknown): p is number => typeof p === 'number') : undefined,
       lastInstruction: asString(row.lastInstruction) || null,
       updatedAt: asString(row.updatedAt) || null,
     });
@@ -966,6 +968,7 @@ Return strict JSON:
 {
   "content": string,
   "status": "draft" | "insufficient_data",
+  "sourcePages": number[],
   "notes": string
 }
 
@@ -977,7 +980,8 @@ Instructions:
 - Do not invent providers, dates, diagnoses, or tests.
 - Prefer clear prose with short paragraphs or bullet lists where appropriate.
 - Mention contradictions when they matter.
-- When page_index evidence is available, refer to the relevant page number in the prose.
+- When page_index evidence is available, cite the page number inline using the format "(p. X)" in the prose text. This is critical for linking the content back to the source document.
+- Collect ALL cited page numbers into the "sourcePages" array (sorted, no duplicates).
 
 User preferences:
 ${summarizePreferences(options.context.preferences, options.steeringContext)}
@@ -1006,19 +1010,24 @@ export async function generateImeSection(options: {
   context: ImeCaseContext;
   currentSections: ImeSectionRecord[];
   steeringContext?: Record<string, unknown> | null;
-}): Promise<{ content: string; status: ImeSectionStatus; notes?: string }> {
+}): Promise<{ content: string; status: ImeSectionStatus; sourcePages: number[]; notes?: string }> {
   const { prompt, fallback } = buildSectionPrompt(options);
-  const result = await callGeminiJson<{ content?: string; status?: ImeSectionStatus; notes?: string }>(prompt, {
+  const result = await callGeminiJson<{ content?: string; status?: ImeSectionStatus; sourcePages?: number[]; notes?: string }>(prompt, {
     content: fallback,
     status: fallback.startsWith('Insufficient data') ? 'insufficient_data' : 'draft',
+    sourcePages: [],
     notes: 'Fallback generated from local context.',
   });
 
   const content = asString(result.content) || fallback;
   const status = (asString(result.status) as ImeSectionStatus) || (content.startsWith('Insufficient data') ? 'insufficient_data' : 'draft');
+  const sourcePages = Array.isArray(result.sourcePages)
+    ? [...new Set(result.sourcePages.filter((p): p is number => typeof p === 'number' && Number.isFinite(p) && p > 0))].sort((a, b) => a - b)
+    : [];
   return {
     content,
     status,
+    sourcePages,
     notes: asString(result.notes),
   };
 }

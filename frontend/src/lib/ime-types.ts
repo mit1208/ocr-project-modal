@@ -56,6 +56,7 @@ export type ImeSectionRecord = {
   label: string;
   status: ImeSectionStatus;
   content: string;
+  sourcePages?: number[];
   lastInstruction?: string | null;
   updatedAt?: string | null;
 };

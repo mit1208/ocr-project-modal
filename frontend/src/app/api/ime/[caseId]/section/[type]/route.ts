@@ -44,6 +44,7 @@ export async function POST(
             ...section,
             content: generated.content,
             status: generated.status,
+            sourcePages: generated.sourcePages,
             updatedAt: now,
           }
         : section
