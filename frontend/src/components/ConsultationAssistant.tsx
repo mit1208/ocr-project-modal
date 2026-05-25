@@ -13,7 +13,7 @@ import type {
   ConsultationSessionData,
   ConsultationSpeaker,
   SuggestedQuestion,
-} from '@/lib/ime-types';
+} from '@/lib/consultation-types';
 
 declare global {
   interface Window {
