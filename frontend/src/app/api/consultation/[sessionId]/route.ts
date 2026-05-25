@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServiceClient, jsonError, requireAuthenticatedUser } from '@/lib/server/slm';
-import { EMPTY_SUMMARY, generateConsultationInsights, loadConsultationSession, loadLatestConsultationForCase } from '@/lib/server/ime';
+import { EMPTY_SUMMARY, generateConsultationInsights, loadConsultationSession, loadLatestConsultationForCase } from '@/lib/server/consultation';
 
 async function createConsultationSession(request: NextRequest, userId: string) {
   const body = await request.json();

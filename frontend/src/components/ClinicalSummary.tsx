@@ -6,7 +6,6 @@ import dynamic from 'next/dynamic';
 const BodyMap3D = dynamic(() => import('./BodyMap3D'), { ssr: false });
 const IntakeSheet = dynamic(() => import('./IntakeSheet'), { ssr: false });
 const ConsultationAssistant = dynamic(() => import('./ConsultationAssistant'), { ssr: false });
-const IMESummaryBuilder = dynamic(() => import('./IMESummaryBuilder'), { ssr: false });
 import {
     ExclamationTriangleIcon,
     BeakerIcon,
@@ -216,7 +215,7 @@ interface ClinicalSummaryProps {
     onNavigateToPage?: (page: number) => void;
 }
 
-type TabId = 'summary' | 'alerts' | 'timeline' | 'issues' | 'details' | 'consultation' | 'ime' | 'intake' | 'bodymap';
+type TabId = 'summary' | 'alerts' | 'timeline' | 'issues' | 'details' | 'consultation' | 'intake' | 'bodymap';
 
 /* ─── Category Styles ─── */
 
@@ -614,7 +613,6 @@ export default function ClinicalSummary({ fileId, caseId, rawResults, onNavigate
         { id: 'issues', label: 'Issues', icon: '🔎', badge: chronologyData?.issues?.length, loading: chronologyLoading },
         { id: 'details', label: 'Details', icon: '📋', badge: detailsData?.patients?.length || detailsData?.groups?.length, loading: detailsLoading },
         { id: 'consultation', label: 'Consult', icon: '🎙️', loading: false },
-        { id: 'ime', label: 'IME', icon: '📄', loading: false },
         { id: 'intake', label: 'Intake', icon: '🧩', badge: intakeData?.clinical_intake?.problem_list?.length, loading: intakeLoading },
         { id: 'bodymap', label: 'Body Map', icon: '🫀', loading: false },
     ];
@@ -1535,16 +1533,6 @@ export default function ClinicalSummary({ fileId, caseId, rawResults, onNavigate
                         )
                     )}
 
-                    {/* ── IME TAB ── */}
-                    {activeTab === 'ime' && (
-                        caseId ? (
-                            <IMESummaryBuilder caseId={caseId} onNavigateToPage={onNavigateToPage} />
-                        ) : (
-                            <div className="p-5">
-                                <EmptyState icon={<DocumentTextIcon className="w-10 h-10 text-slate-200" />} text="IME builder becomes available once this document is tied to a case." />
-                            </div>
-                        )
-                    )}
 
                     {/* ── BODY MAP TAB ── */}
                     {activeTab === 'bodymap' && (
